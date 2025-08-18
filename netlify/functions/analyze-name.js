@@ -380,6 +380,7 @@ function analyzeYinYang(name) {
 // 개선된 로컬 점수 계산 함수
 function calculateLocalScore(name, hanja = '') {
   console.log('=== 전문적인 작명 분석 시작 ===');
+  console.log('분석할 이름:', name);
 
   const nameLength = name.length;
   const hasHanja = hanja && hanja.trim().length > 0;
@@ -388,16 +389,16 @@ function calculateLocalScore(name, hanja = '') {
   let structureScore = 0;
   switch (nameLength) {
     case 2:
-      structureScore = 70;
+      structureScore = 75;
       break; // 성+이름 1글자
     case 3:
       structureScore = 85;
       break; // 성+이름 2글자 (가장 일반적)
     case 4:
-      structureScore = 75;
+      structureScore = 80;
       break; // 성 2글자+이름 2글자 또는 성+이름 3글자
     default:
-      structureScore = 65;
+      structureScore = 70;
       break; // 기타
   }
   console.log('구조 점수:', structureScore);
@@ -422,28 +423,46 @@ function calculateLocalScore(name, hanja = '') {
   const hanjaBonus = hasHanja ? 5 : 0;
   console.log('한자 보너스:', hanjaBonus);
 
-  // 최종 점수 계산 (가중 평균)
-  const finalScore = Math.round(
-    structureScore * 0.25 + // 구조 25%
-      strokeAnalysis.score * 0.25 + // 획수 25%
-      elementAnalysis.harmony * 0.2 + // 오행 20%
-      yinYangScore * 0.15 + // 음양 15%
-      pronunciationScore * 0.1 + // 발음 10%
-      hanjaBonus // 한자 보너스 5%
-  );
+  // 점수들이 유효한지 확인하고 기본값 설정
+  const safeStrokeScore =
+    strokeAnalysis && strokeAnalysis.score ? strokeAnalysis.score : 75;
+  const safeElementScore =
+    elementAnalysis && elementAnalysis.harmony ? elementAnalysis.harmony : 75;
+  const safeYinYangScore = yinYangScore || 75;
+  const safePronunciationScore = pronunciationScore || 75;
 
+  console.log('안전한 점수들:', {
+    structure: structureScore,
+    stroke: safeStrokeScore,
+    element: safeElementScore,
+    yinyang: safeYinYangScore,
+    pronunciation: safePronunciationScore,
+    hanjaBonus: hanjaBonus,
+  });
+
+  // 최종 점수 계산 (가중 평균)
+  const weightedScore =
+    structureScore * 0.25 + // 구조 25%
+    safeStrokeScore * 0.25 + // 획수 25%
+    safeElementScore * 0.2 + // 오행 20%
+    safeYinYangScore * 0.15 + // 음양 15%
+    safePronunciationScore * 0.1; // 발음 10%
+
+  const finalScore = Math.round(weightedScore + hanjaBonus);
+
+  console.log('가중 점수:', weightedScore);
   console.log('최종 점수:', finalScore);
 
   // 성향 및 추천사항 결정
   const personality = determinePersonality(
     name,
     elementAnalysis,
-    yinYangScore,
+    safeYinYangScore,
     finalScore
   );
 
-  return {
-    score: Math.max(60, Math.min(100, finalScore)),
+  const result = {
+    score: Math.max(65, Math.min(100, finalScore)),
     grade: finalScore >= 85 ? '우수' : finalScore >= 70 ? '보통' : '개선필요',
     personalityTitle: personality.title,
     personalityDesc: personality.desc,
@@ -454,6 +473,9 @@ function calculateLocalScore(name, hanja = '') {
     avoid2: personality.avoid[1],
     avoid3: personality.avoid[2],
   };
+
+  console.log('최종 결과:', result);
+  return result;
 }
 
 // 획수 분석 (81수리학 기준)
