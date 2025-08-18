@@ -567,7 +567,48 @@
           max-width: 300px;
         }
       }
+      /* 광고 영역 스타일 */
+      .ad-container {
+        margin-top: 40px;
+        padding: 20px;
+        text-align: center;
+        border-top: 1px solid var(--border-color);
+        background: var(--card-bg);
+        border-radius: 15px;
+      }
+
+      .ad-label {
+        font-size: 0.8rem;
+        color: var(--text-light);
+        margin-bottom: 10px;
+        opacity: 0.7;
+      }
+
+      .ad-content {
+        max-width: 100%;
+        margin: 0 auto;
+      }
+
+      /* 광고가 로드되지 않을 때를 위한 최소 높이 */
+      .ad-content ins {
+        min-height: 90px;
+        display: block;
+      }
+
+      @media (max-width: 768px) {
+        .ad-container {
+          margin-top: 30px;
+          padding: 15px;
+        }
+      }
     </style>
+
+    <!-- Google AdSense -->
+    <script
+      async
+      src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-7105748517736535"
+      crossorigin="anonymous"
+    ></script>
   </head>
   <body data-theme="light">
     <div class="container">
@@ -696,6 +737,38 @@
           <button class="btn btn-secondary" onclick="resetAnalysis()">
             다시 분석하기
           </button>
+        </div>
+
+        <!-- 광고 영역 -->
+        <div class="ad-container fade-in-up stagger-5">
+          <div class="ad-label">광고</div>
+          <div class="ad-content">
+            <!-- 반응형 광고 -->
+            <ins
+              class="adsbygoogle"
+              style="display: block"
+              data-ad-client="ca-pub-7105748517736535"
+              data-ad-slot="auto"
+              data-ad-format="auto"
+              data-full-width-responsive="true"
+            ></ins>
+          </div>
+        </div>
+      </div>
+
+      <!-- 하단 공통 광고 영역 (입력 화면과 결과 화면 모두에서 보임) -->
+      <div class="ad-container">
+        <div class="ad-label">광고</div>
+        <div class="ad-content">
+          <!-- 하단 배너 광고 -->
+          <ins
+            class="adsbygoogle"
+            style="display: block"
+            data-ad-client="ca-pub-7105748517736535"
+            data-ad-slot="auto"
+            data-ad-format="auto"
+            data-full-width-responsive="true"
+          ></ins>
         </div>
       </div>
     </div>
@@ -1042,6 +1115,15 @@
             }, index * 150);
           });
         }, 600);
+
+        // 결과 화면에서 광고 새로 로드
+        setTimeout(() => {
+          try {
+            (adsbygoogle = window.adsbygoogle || []).push({});
+          } catch (e) {
+            console.log('결과 화면 광고 로드 오류:', e);
+          }
+        }, 1500);
       }
 
       function resetAnalysis() {
@@ -1051,6 +1133,17 @@
         document.getElementById('hanjaInput').value = '';
         document.getElementById('nameInput').focus();
         hideError();
+      }
+
+      // 광고 로드 함수
+      function loadAds() {
+        try {
+          // AdSense 광고 로드
+          (adsbygoogle = window.adsbygoogle || []).push({});
+          (adsbygoogle = window.adsbygoogle || []).push({});
+        } catch (e) {
+          console.log('광고 로드 중 오류:', e);
+        }
       }
 
       // 초기 설정
@@ -1083,6 +1176,9 @@
               analyzeName();
             }
           });
+
+        // 페이지 로드 후 광고 로드
+        setTimeout(loadAds, 1000);
       });
     </script>
   </body>
