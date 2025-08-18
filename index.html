@@ -1,0 +1,1089 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>작명 점수</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      :root {
+        --primary-color: #667eea;
+        --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        --secondary-color: #f093fb;
+        --success-color: #4ade80;
+        --warning-color: #fbbf24;
+        --danger-color: #ef4444;
+        --bg-color: #ffffff;
+        --card-bg: #ffffff;
+        --text-color: #1f2937;
+        --text-light: #6b7280;
+        --border-color: #e5e7eb;
+        --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+        --shadow-lg: 0 20px 25px -5px rgb(0 0 0 / 0.1);
+      }
+
+      [data-theme='dark'] {
+        --bg-color: #0f172a;
+        --card-bg: #1e293b;
+        --text-color: #f1f5f9;
+        --text-light: #94a3b8;
+        --border-color: #334155;
+        --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.3);
+        --shadow-lg: 0 20px 25px -5px rgb(0 0 0 / 0.3);
+      }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+          'Noto Sans KR', sans-serif;
+        background: var(--bg-color);
+        color: var(--text-color);
+        line-height: 1.6;
+        transition: all 0.3s ease;
+        min-height: 100vh;
+      }
+
+      .container {
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 40px;
+        flex-wrap: wrap;
+        gap: 20px;
+      }
+
+      .title {
+        background: var(--primary-gradient);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        font-size: 2.5rem;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+      }
+
+      .header-controls {
+        display: flex;
+        align-items: center;
+        gap: 20px;
+      }
+
+      .current-time {
+        text-align: right;
+        color: var(--text-light);
+        font-size: 0.9rem;
+      }
+
+      .theme-toggle {
+        background: var(--card-bg);
+        border: 2px solid var(--border-color);
+        border-radius: 25px;
+        padding: 8px 16px;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        color: var(--text-color);
+        font-size: 0.9rem;
+      }
+
+      .theme-toggle:hover {
+        border-color: var(--primary-color);
+        transform: translateY(-1px);
+      }
+
+      .card {
+        background: var(--card-bg);
+        border-radius: 20px;
+        padding: 40px;
+        box-shadow: var(--shadow-lg);
+        border: 1px solid var(--border-color);
+        margin-bottom: 30px;
+        transition: all 0.3s ease;
+      }
+
+      .input-section {
+        text-align: center;
+      }
+
+      .input-group {
+        margin-bottom: 25px;
+      }
+
+      .input-label {
+        display: block;
+        margin-bottom: 8px;
+        font-weight: 600;
+        color: var(--text-color);
+      }
+
+      .input-field {
+        width: 100%;
+        max-width: 400px;
+        padding: 15px 20px;
+        border: 2px solid var(--border-color);
+        border-radius: 15px;
+        font-size: 16px;
+        background: var(--bg-color);
+        color: var(--text-color);
+        transition: all 0.3s ease;
+        outline: none;
+      }
+
+      .input-field:focus {
+        border-color: var(--primary-color);
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+      }
+
+      .input-field::placeholder {
+        color: var(--text-light);
+      }
+
+      .btn {
+        background: var(--primary-gradient);
+        color: white;
+        border: none;
+        padding: 15px 40px;
+        border-radius: 25px;
+        font-size: 16px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        box-shadow: var(--shadow);
+      }
+
+      .btn:hover {
+        transform: translateY(-2px);
+        box-shadow: var(--shadow-lg);
+      }
+
+      .btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+        transform: none;
+      }
+
+      .btn-secondary {
+        background: var(--card-bg);
+        color: var(--text-color);
+        border: 2px solid var(--border-color);
+      }
+
+      .loading {
+        display: none;
+        text-align: center;
+        margin: 30px 0;
+      }
+
+      .spinner {
+        width: 40px;
+        height: 40px;
+        border: 4px solid var(--border-color);
+        border-top: 4px solid var(--primary-color);
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin: 0 auto 15px;
+      }
+
+      @keyframes spin {
+        0% {
+          transform: rotate(0deg);
+        }
+        100% {
+          transform: rotate(360deg);
+        }
+      }
+
+      .result-section {
+        display: none;
+      }
+
+      .score-display {
+        text-align: center;
+        margin-bottom: 40px;
+      }
+
+      .score-circle {
+        position: relative;
+        width: 200px;
+        height: 200px;
+        margin: 0 auto 20px;
+      }
+
+      .progress-ring {
+        transform: rotate(-90deg);
+      }
+
+      .progress-ring-circle {
+        fill: none;
+        stroke-width: 8;
+        transition: stroke-dashoffset 2s ease-in-out;
+      }
+
+      .progress-ring-bg {
+        stroke: var(--border-color);
+        opacity: 0.3;
+      }
+
+      .progress-ring-fill {
+        stroke-linecap: round;
+        transition: stroke 1s ease-in-out;
+      }
+
+      .score-number {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        font-size: 2.5rem;
+        font-weight: 900;
+        margin-bottom: 5px;
+      }
+
+      .score-text {
+        position: absolute;
+        top: 60%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        font-size: 0.9rem;
+        color: var(--text-light);
+      }
+
+      .score-grade {
+        display: inline-block;
+        padding: 8px 20px;
+        border-radius: 20px;
+        font-weight: 600;
+        font-size: 0.9rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+
+      .grade-excellent {
+        background: rgba(74, 222, 128, 0.1);
+        color: var(--success-color);
+        border: 1px solid rgba(74, 222, 128, 0.2);
+      }
+
+      .grade-good {
+        background: rgba(251, 191, 36, 0.1);
+        color: var(--warning-color);
+        border: 1px solid rgba(251, 191, 36, 0.2);
+      }
+
+      .grade-poor {
+        background: rgba(239, 68, 68, 0.1);
+        color: var(--danger-color);
+        border: 1px solid rgba(239, 68, 68, 0.2);
+      }
+
+      .personality-section {
+        margin-bottom: 40px;
+      }
+
+      .section-title {
+        font-size: 1.5rem;
+        font-weight: 700;
+        margin-bottom: 15px;
+        color: var(--text-color);
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .personality-title {
+        font-size: 1.2rem;
+        font-weight: 600;
+        color: var(--primary-color);
+        margin-bottom: 10px;
+      }
+
+      .personality-desc {
+        color: var(--text-light);
+        line-height: 1.7;
+      }
+
+      .items-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 20px;
+        margin-top: 20px;
+      }
+
+      .item-card {
+        background: var(--bg-color);
+        border: 2px solid var(--border-color);
+        border-radius: 15px;
+        padding: 20px;
+        text-align: center;
+        transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        position: relative;
+        overflow: hidden;
+        transform: translateY(0);
+        opacity: 1;
+      }
+
+      .item-card::before {
+        content: '';
+        position: absolute;
+        top: -50%;
+        left: -50%;
+        width: 200%;
+        height: 200%;
+        background: radial-gradient(
+          circle,
+          rgba(255, 255, 255, 0.1) 0%,
+          transparent 70%
+        );
+        transform: scale(0);
+        transition: transform 0.6s ease;
+      }
+
+      .item-card:hover::before {
+        transform: scale(1);
+      }
+
+      .item-card:hover {
+        transform: translateY(-8px) scale(1.02);
+        box-shadow: 0 15px 30px rgba(0, 0, 0, 0.15);
+      }
+
+      .item-card.recommended {
+        border-color: var(--success-color);
+        background: rgba(74, 222, 128, 0.05);
+      }
+
+      .item-card.recommended:hover {
+        border-color: var(--success-color);
+        box-shadow: 0 15px 30px rgba(74, 222, 128, 0.3);
+      }
+
+      .item-card.avoid {
+        border-color: var(--danger-color);
+        background: rgba(239, 68, 68, 0.05);
+      }
+
+      .item-card.avoid:hover {
+        border-color: var(--danger-color);
+        box-shadow: 0 15px 30px rgba(239, 68, 68, 0.3);
+      }
+
+      .item-icon {
+        font-size: 2rem;
+        margin-bottom: 10px;
+      }
+
+      .item-name {
+        font-weight: 600;
+        color: var(--text-color);
+      }
+
+      .hidden {
+        display: none !important;
+      }
+
+      .fade-in {
+        animation: fadeIn 0.6s ease-out forwards;
+      }
+
+      .fade-in-up {
+        animation: fadeInUp 0.8s ease-out forwards;
+      }
+
+      .stagger-1 {
+        animation-delay: 0.1s;
+      }
+      .stagger-2 {
+        animation-delay: 0.2s;
+      }
+      .stagger-3 {
+        animation-delay: 0.3s;
+      }
+      .stagger-4 {
+        animation-delay: 0.4s;
+      }
+      .stagger-5 {
+        animation-delay: 0.5s;
+      }
+      .stagger-6 {
+        animation-delay: 0.6s;
+      }
+
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(20px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      @keyframes fadeInUp {
+        from {
+          opacity: 0;
+          transform: translateY(30px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      @keyframes bounceIn {
+        0% {
+          opacity: 0;
+          transform: scale(0.3);
+        }
+        50% {
+          opacity: 1;
+          transform: scale(1.05);
+        }
+        70% {
+          transform: scale(0.9);
+        }
+        100% {
+          opacity: 1;
+          transform: scale(1);
+        }
+      }
+
+      .bounce-in {
+        animation: bounceIn 0.8s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+      }
+
+      .share-button {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border: none;
+        padding: 12px 30px;
+        border-radius: 20px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        margin-top: 20px;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .share-button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
+      }
+
+      .share-button.copied {
+        background: var(--success-color);
+        transform: scale(0.95);
+      }
+
+      .result-header {
+        text-align: center;
+        margin-bottom: 30px;
+      }
+
+      .result-name {
+        font-size: 1.5rem;
+        font-weight: 700;
+        color: var(--text-color);
+        margin-bottom: 5px;
+      }
+
+      .result-hanja {
+        font-size: 1.1rem;
+        color: var(--text-light);
+        font-style: italic;
+      }
+
+      .error-message {
+        background: rgba(239, 68, 68, 0.1);
+        color: var(--danger-color);
+        padding: 15px 20px;
+        border-radius: 10px;
+        border: 1px solid rgba(239, 68, 68, 0.2);
+        margin: 20px 0;
+        display: none;
+      }
+
+      /* 모바일 반응형 */
+      @media (max-width: 768px) {
+        .container {
+          padding: 15px;
+        }
+
+        .title {
+          font-size: 2rem;
+        }
+
+        .card {
+          padding: 25px 20px;
+        }
+
+        .score-number {
+          font-size: 3rem;
+        }
+
+        .items-grid {
+          grid-template-columns: 1fr;
+          gap: 15px;
+        }
+
+        .header {
+          text-align: center;
+        }
+
+        .header-controls {
+          width: 100%;
+          justify-content: center;
+        }
+      }
+
+      @media (max-width: 480px) {
+        .title {
+          font-size: 1.8rem;
+        }
+
+        .input-field {
+          font-size: 16px; /* iOS zoom 방지 */
+        }
+
+        .btn {
+          width: 100%;
+          max-width: 300px;
+        }
+      }
+    </style>
+  </head>
+  <body data-theme="light">
+    <div class="container">
+      <header class="header">
+        <h1 class="title">작명 점수</h1>
+        <div class="header-controls">
+          <div class="current-time">
+            <div id="currentDate"></div>
+            <div id="currentTime"></div>
+          </div>
+          <button class="theme-toggle" onclick="toggleTheme()">
+            <span id="themeIcon">🌙</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- 입력 화면 -->
+      <div class="card input-section" id="inputSection">
+        <div class="input-group">
+          <label class="input-label" for="nameInput">이름을 입력하세요</label>
+          <input
+            type="text"
+            id="nameInput"
+            class="input-field"
+            placeholder="홍길동"
+            maxlength="10"
+            required
+          />
+        </div>
+
+        <div class="input-group">
+          <label class="input-label" for="hanjaInput">한자 (선택사항)</label>
+          <input
+            type="text"
+            id="hanjaInput"
+            class="input-field"
+            placeholder="洪吉東"
+            maxlength="20"
+          />
+        </div>
+
+        <div class="error-message" id="errorMessage"></div>
+
+        <button class="btn" onclick="analyzeName()" id="analyzeBtn">
+          결과 보기
+        </button>
+
+        <div class="loading" id="loadingDiv">
+          <div class="spinner"></div>
+          <p>이름을 분석하고 있습니다...</p>
+        </div>
+      </div>
+
+      <!-- 결과 화면 -->
+      <div class="card result-section" id="resultSection">
+        <div class="result-header">
+          <div class="result-name" id="resultName">홍길동</div>
+          <div class="result-hanja" id="resultHanja">洪吉東</div>
+        </div>
+
+        <div class="score-display">
+          <div class="score-circle">
+            <svg class="progress-ring" width="200" height="200">
+              <circle
+                class="progress-ring-circle progress-ring-bg"
+                cx="100"
+                cy="100"
+                r="90"
+              />
+              <circle
+                class="progress-ring-circle progress-ring-fill"
+                cx="100"
+                cy="100"
+                r="90"
+                id="progressCircle"
+              />
+            </svg>
+            <div class="score-number" id="scoreNumber">85</div>
+            <div class="score-text">점</div>
+          </div>
+          <span class="score-grade" id="scoreGrade">우수</span>
+          <button class="share-button" onclick="shareResult()">
+            <span>📋</span>
+            <span id="shareButtonText">결과 복사하기</span>
+          </button>
+        </div>
+
+        <div class="personality-section fade-in-up">
+          <h2 class="section-title">
+            <span>🎯</span>
+            이름 성향
+          </h2>
+          <div class="personality-title" id="personalityTitle">
+            활동적이고 진취적인 성향
+          </div>
+          <p class="personality-desc" id="personalityDesc">
+            리더십이 강하고 도전 정신이 뛰어나며, 새로운 것을 추구하는 성향을
+            가지고 있습니다.
+          </p>
+        </div>
+
+        <div class="items-section fade-in-up stagger-2">
+          <h2 class="section-title">
+            <span>✨</span>
+            추천하는 물건들
+          </h2>
+          <div class="items-grid" id="recommendedItems">
+            <!-- 추천 아이템들이 여기에 동적으로 추가됩니다 -->
+          </div>
+        </div>
+
+        <div class="items-section fade-in-up stagger-3">
+          <h2 class="section-title">
+            <span>⚠️</span>
+            피해야 할 물건들
+          </h2>
+          <div class="items-grid" id="avoidItems">
+            <!-- 피할 아이템들이 여기에 동적으로 추가됩니다 -->
+          </div>
+        </div>
+
+        <div
+          style="text-align: center; margin-top: 40px"
+          class="fade-in-up stagger-4"
+        >
+          <button class="btn btn-secondary" onclick="resetAnalysis()">
+            다시 분석하기
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // API 설정
+      const API_CONFIG = {
+        endpoint: '/.netlify/functions/analyze-name',
+      };
+
+      // 테마 토글
+      function toggleTheme() {
+        const body = document.body;
+        const themeIcon = document.getElementById('themeIcon');
+
+        if (body.getAttribute('data-theme') === 'light') {
+          body.setAttribute('data-theme', 'dark');
+          themeIcon.textContent = '☀️';
+          localStorage.setItem('theme', 'dark');
+        } else {
+          body.setAttribute('data-theme', 'light');
+          themeIcon.textContent = '🌙';
+          localStorage.setItem('theme', 'light');
+        }
+      }
+
+      // 저장된 테마 로드
+      function loadTheme() {
+        const savedTheme = localStorage.getItem('theme');
+        if (savedTheme) {
+          document.body.setAttribute('data-theme', savedTheme);
+          document.getElementById('themeIcon').textContent =
+            savedTheme === 'dark' ? '☀️' : '🌙';
+        }
+      }
+
+      // 현재 시간 업데이트
+      function updateCurrentTime() {
+        const now = new Date();
+        document.getElementById('currentDate').textContent =
+          now.toLocaleDateString('ko-KR');
+        document.getElementById('currentTime').textContent =
+          now.toLocaleTimeString('ko-KR', {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false,
+          });
+      }
+
+      // 이름 분석 함수
+      async function analyzeName() {
+        const nameInput = document.getElementById('nameInput');
+        const hanjaInput = document.getElementById('hanjaInput');
+        const name = nameInput.value.trim();
+
+        if (!name) {
+          showError('이름을 입력해주세요.');
+          nameInput.focus();
+          return;
+        }
+
+        // UI 상태 변경
+        showLoading();
+        hideError();
+
+        try {
+          const response = await fetch(API_CONFIG.endpoint, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              name: name,
+              hanja: hanjaInput.value.trim(),
+            }),
+          });
+
+          if (!response.ok) {
+            throw new Error(`서버 응답 오류: ${response.status}`);
+          }
+
+          const result = await response.json();
+
+          if (result.success) {
+            displayResult(result.data);
+            showResultSection();
+          } else {
+            throw new Error(result.error || '분석 중 오류가 발생했습니다.');
+          }
+        } catch (error) {
+          console.error('분석 오류:', error);
+          showError('분석 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
+        } finally {
+          hideLoading();
+        }
+      }
+
+      function showLoading() {
+        document.getElementById('analyzeBtn').disabled = true;
+        document.getElementById('loadingDiv').style.display = 'block';
+      }
+
+      function hideLoading() {
+        document.getElementById('analyzeBtn').disabled = false;
+        document.getElementById('loadingDiv').style.display = 'none';
+      }
+
+      function showError(message) {
+        const errorDiv = document.getElementById('errorMessage');
+        errorDiv.textContent = message;
+        errorDiv.style.display = 'block';
+      }
+
+      function hideError() {
+        document.getElementById('errorMessage').style.display = 'none';
+      }
+
+      function displayResult(data) {
+        const nameInput = document.getElementById('nameInput').value.trim();
+        const hanjaInput = document.getElementById('hanjaInput').value.trim();
+
+        // 결과 헤더 업데이트
+        document.getElementById('resultName').textContent = nameInput;
+        document.getElementById('resultHanja').textContent = hanjaInput || '';
+        document.getElementById('resultHanja').style.display = hanjaInput
+          ? 'block'
+          : 'none';
+
+        // 점수 색상 결정
+        const score = data.score;
+        let color, bgColor;
+
+        if (score >= 85) {
+          color = '#fbbf24'; // 황금색
+          bgColor = 'rgba(251, 191, 36, 0.1)';
+        } else if (score >= 70) {
+          color = '#10b981'; // 초록색
+          bgColor = 'rgba(16, 185, 129, 0.1)';
+        } else {
+          color = '#ef4444'; // 빨간색
+          bgColor = 'rgba(239, 68, 68, 0.1)';
+        }
+
+        // 원형 프로그레스 바 설정
+        const circle = document.getElementById('progressCircle');
+        const radius = 90;
+        const circumference = 2 * Math.PI * radius;
+        const offset = circumference - (score / 100) * circumference;
+
+        circle.style.strokeDasharray = circumference;
+        circle.style.strokeDashoffset = circumference; // 시작값
+        circle.style.stroke = color;
+
+        // 점수 및 등급 표시
+        const scoreNumber = document.getElementById('scoreNumber');
+        scoreNumber.textContent = score;
+        scoreNumber.style.background = `linear-gradient(135deg, ${color} 0%, ${color}AA 100%)`;
+        scoreNumber.style.webkitBackgroundClip = 'text';
+        scoreNumber.style.webkitTextFillColor = 'transparent';
+        scoreNumber.style.backgroundClip = 'text';
+
+        const gradeElement = document.getElementById('scoreGrade');
+        gradeElement.textContent = data.grade;
+        gradeElement.className = 'score-grade ' + getGradeClass(data.grade);
+        gradeElement.style.backgroundColor = bgColor;
+        gradeElement.style.color = color;
+
+        // 애니메이션으로 프로그레스 바 채우기
+        setTimeout(() => {
+          circle.style.strokeDashoffset = offset;
+        }, 500);
+
+        // 성향 표시
+        document.getElementById('personalityTitle').textContent =
+          data.personalityTitle || '균형잡힌 성향';
+        document.getElementById('personalityDesc').textContent =
+          data.personalityDesc || '안정적이고 조화로운 성격을 가지고 있습니다.';
+
+        // 추천 물건들 표시
+        const recommendedContainer =
+          document.getElementById('recommendedItems');
+        recommendedContainer.innerHTML = '';
+
+        [data.recommended1, data.recommended2, data.recommended3].forEach(
+          (item, index) => {
+            if (item) {
+              const itemCard = createItemCard(
+                item,
+                'recommended',
+                getRecommendedIcon(index)
+              );
+              itemCard.classList.add('fade-in-up', `stagger-${index + 1}`);
+              recommendedContainer.appendChild(itemCard);
+            }
+          }
+        );
+
+        // 피할 물건들 표시
+        const avoidContainer = document.getElementById('avoidItems');
+        avoidContainer.innerHTML = '';
+
+        [data.avoid1, data.avoid2, data.avoid3].forEach((item, index) => {
+          if (item) {
+            const itemCard = createItemCard(item, 'avoid', getAvoidIcon(index));
+            itemCard.classList.add('fade-in-up', `stagger-${index + 4}`);
+            avoidContainer.appendChild(itemCard);
+          }
+        });
+      }
+
+      // 결과 공유 기능
+      function shareResult() {
+        const name = document.getElementById('resultName').textContent;
+        const hanja = document.getElementById('resultHanja').textContent;
+        const score = document.getElementById('scoreNumber').textContent;
+        const grade = document.getElementById('scoreGrade').textContent;
+        const personality =
+          document.getElementById('personalityTitle').textContent;
+        const personalityDesc =
+          document.getElementById('personalityDesc').textContent;
+
+        const recommended = [];
+        document
+          .querySelectorAll('#recommendedItems .item-name')
+          .forEach((el) => {
+            recommended.push(el.textContent);
+          });
+
+        const avoid = [];
+        document.querySelectorAll('#avoidItems .item-name').forEach((el) => {
+          avoid.push(el.textContent);
+        });
+
+        const shareText = `🎯 작명 점수 분석 결과
+            
+📋 이름: ${name}${hanja ? ` (${hanja})` : ''}
+⭐ 점수: ${score}점 (${grade})
+
+🎭 성향: ${personality}
+📝 ${personalityDesc}
+
+✨ 추천 물건: ${recommended.join(', ')}
+⚠️ 피할 물건: ${avoid.join(', ')}
+
+---
+작명 점수 앱에서 생성된 결과입니다.`;
+
+        // 클립보드에 복사
+        if (navigator.clipboard && window.isSecureContext) {
+          navigator.clipboard
+            .writeText(shareText)
+            .then(() => {
+              showCopySuccess();
+            })
+            .catch(() => {
+              fallbackCopyToClipboard(shareText);
+            });
+        } else {
+          fallbackCopyToClipboard(shareText);
+        }
+      }
+
+      function fallbackCopyToClipboard(text) {
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-999999px';
+        textArea.style.top = '-999999px';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+
+        try {
+          document.execCommand('copy');
+          showCopySuccess();
+        } catch (err) {
+          alert('복사에 실패했습니다. 수동으로 복사해주세요.');
+        }
+
+        document.body.removeChild(textArea);
+      }
+
+      function showCopySuccess() {
+        const button = document.querySelector('.share-button');
+        const buttonText = document.getElementById('shareButtonText');
+
+        button.classList.add('copied');
+        buttonText.textContent = '복사 완료!';
+
+        setTimeout(() => {
+          button.classList.remove('copied');
+          buttonText.textContent = '결과 복사하기';
+        }, 2000);
+      }
+
+      function getGradeClass(grade) {
+        switch (grade) {
+          case '우수':
+            return 'grade-excellent';
+          case '보통':
+            return 'grade-good';
+          case '개선필요':
+            return 'grade-poor';
+          default:
+            return 'grade-good';
+        }
+      }
+
+      function createItemCard(itemName, type, icon) {
+        const card = document.createElement('div');
+        card.className = `item-card ${type}`;
+        card.innerHTML = `
+                <div class="item-icon">${icon}</div>
+                <div class="item-name">${itemName}</div>
+            `;
+        return card;
+      }
+
+      function getRecommendedIcon(index) {
+        const icons = ['💎', '🍀', '🌟', '🔮', '🎋', '🌸'];
+        return icons[index] || '✨';
+      }
+
+      function getAvoidIcon(index) {
+        const icons = ['🚫', '⚠️', '💥', '🌪️', '⚡', '🔥'];
+        return icons[index] || '❌';
+      }
+
+      function showResultSection() {
+        document.getElementById('inputSection').style.display = 'none';
+        document.getElementById('resultSection').style.display = 'block';
+
+        // 점수 애니메이션
+        setTimeout(() => {
+          document.querySelector('.score-circle').classList.add('bounce-in');
+        }, 200);
+
+        // 각 섹션들을 순차적으로 애니메이션
+        setTimeout(() => {
+          document.querySelectorAll('.fade-in-up').forEach((el, index) => {
+            setTimeout(() => {
+              el.style.opacity = '1';
+              el.style.transform = 'translateY(0)';
+            }, index * 150);
+          });
+        }, 600);
+      }
+
+      function resetAnalysis() {
+        document.getElementById('inputSection').style.display = 'block';
+        document.getElementById('resultSection').style.display = 'none';
+        document.getElementById('nameInput').value = '';
+        document.getElementById('hanjaInput').value = '';
+        document.getElementById('nameInput').focus();
+        hideError();
+      }
+
+      // 초기 설정
+      document.addEventListener('DOMContentLoaded', function () {
+        loadTheme();
+        updateCurrentTime();
+
+        // 1분마다 시간 업데이트
+        setInterval(updateCurrentTime, 60000);
+
+        // fade-in-up 요소들 초기 상태 설정
+        document.querySelectorAll('.fade-in-up').forEach((el) => {
+          el.style.opacity = '0';
+          el.style.transform = 'translateY(30px)';
+        });
+
+        // Enter 키 이벤트
+        document
+          .getElementById('nameInput')
+          .addEventListener('keypress', function (e) {
+            if (e.key === 'Enter') {
+              analyzeName();
+            }
+          });
+
+        document
+          .getElementById('hanjaInput')
+          .addEventListener('keypress', function (e) {
+            if (e.key === 'Enter') {
+              analyzeName();
+            }
+          });
+      });
+    </script>
+  </body>
+</html>

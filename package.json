@@ -1,0 +1,24 @@
+{
+  "name": "naming-score-app",
+  "version": "1.0.0",
+  "description": "한국어 이름 점수 분석 앱",
+  "main": "index.html",
+  "scripts": {
+    "build": "echo 'No build step required'",
+    "start": "echo 'Use netlify dev for local development'"
+  },
+  "dependencies": {
+    "node-fetch": "^2.6.7"
+  },
+  "devDependencies": {
+    "netlify-cli": "^17.0.0"
+  },
+  "keywords": [
+    "naming",
+    "korean",
+    "score",
+    "analysis"
+  ],
+  "author": "Your Name",
+  "license": "MIT"
+}
