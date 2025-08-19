@@ -67,7 +67,7 @@ exports.handler = async (event, context) => {
 점수: 85
 등급: 우수
 성향제목: 리더십이 강한 성향
-성향설명: 타고난 지도력과 추진력을 가지고 있습니다.
+성향설명: 타고난 지도력과 추진력을 가지고 있습니다. 주변 사람들에게 신뢰를 받으며 자연스럽게 리더 역할을 맡게 됩니다. 어려운 상황에서도 침착함을 유지하며 현명한 판단력으로 문제를 해결해 나갑니다. 창의적인 아이디어와 실행력을 겸비하여 목표 달성에 탁월한 능력을 보입니다.
 추천물건1: 황금 반지
 추천물건2: 붉은 보석
 추천물건3: 나무 목걸이
@@ -75,7 +75,7 @@ exports.handler = async (event, context) => {
 피할물건2: 차가운 금속
 피할물건3: 깨지는 그릇
 
-위 형식을 정확히 따라 ${name} 이름을 분석해주세요.`;
+위 형식을 정확히 따라 ${name} 이름을 분석해주세요. 성향설명은 반드시 3줄 이상으로 자세하게 작성해주세요.`;
 
         console.log('Gemini API 호출 시작');
         const response = await callGeminiAPI(prompt);
@@ -88,7 +88,7 @@ exports.handler = async (event, context) => {
         if (
           geminiResult.score &&
           geminiResult.score !== 75 &&
-          geminiResult.score >= 1 &&
+          geminiResult.score >= 70 &&
           geminiResult.score <= 100
         ) {
           finalResult = geminiResult;
@@ -462,8 +462,8 @@ function calculateLocalScore(name, hanja = '') {
   );
 
   const result = {
-    score: Math.max(65, Math.min(100, finalScore)),
-    grade: finalScore >= 85 ? '우수' : finalScore >= 70 ? '보통' : '개선필요',
+    score: Math.max(70, Math.min(100, finalScore)), // 최소 점수 70점으로 변경
+    grade: finalScore >= 85 ? '우수' : finalScore >= 75 ? '보통' : '개선필요',
     personalityTitle: personality.title,
     personalityDesc: personality.desc,
     recommended1: personality.recommended[0],
@@ -559,42 +559,42 @@ function determinePersonality(name, elementAnalysis, yinYangScore, totalScore) {
     {
       condition: dominantElement === 'fire' && isYangDominant,
       title: '열정적이고 리더십이 강한 성향',
-      desc: '타고난 카리스마와 추진력을 가지고 있으며, 사람들을 이끌어가는 능력이 뛰어납니다.',
+      desc: '타고난 카리스마와 추진력을 가지고 있으며, 사람들을 이끌어가는 능력이 뛰어납니다. 어려운 상황에서도 포기하지 않는 강인한 정신력을 보유하고 있으며, 창의적인 아이디어로 새로운 길을 개척해 나가는 선구자적 기질이 있습니다. 주변 사람들에게 긍정적인 영향을 미치며, 목표 달성을 위해 끝까지 노력하는 성실한 모습을 보입니다.',
       recommended: ['붉은 보석', '황금 액세서리', '목재 장식품'],
       avoid: ['검은 옷', '차가운 금속', '어두운 색상'],
     },
     {
       condition: dominantElement === 'wood' && yinYangScore < 60,
       title: '창의적이고 성장 지향적인 성향',
-      desc: '끊임없이 발전하고 성장하려는 의지가 강하며, 새로운 것에 대한 호기심이 많습니다.',
-      recommended: ['녹색 보석', '나무 장신구', '자연 소재 용품'],
-      avoid: ['금속 장신구', '인공적인 소재', '날카로운 모양'],
+      desc: '끊임없이 발전하고 성장하려는 의지가 강하며, 새로운 것에 대한 호기심이 많습니다. 예술적 감각이 뛰어나고 독창적인 아이디어를 잘 발휘하는 창조적 인재의 면모를 갖추고 있습니다. 자연을 사랑하고 환경을 중시하는 성향이 있으며, 꾸준한 노력으로 자신의 꿈을 실현해 나가는 끈기있는 모습을 보입니다.',
+      recommended: ['녹색 보석', '나무 장식구', '자연 소재 용품'],
+      avoid: ['금속 장식구', '인공적인 소재', '날카로운 모양'],
     },
     {
       condition: dominantElement === 'earth',
       title: '안정적이고 신뢰할 수 있는 성향',
-      desc: '든든하고 믿음직한 성격으로 주변 사람들에게 안정감을 주는 존재입니다.',
+      desc: '든든하고 믿음직한 성격으로 주변 사람들에게 안정감을 주는 존재입니다. 현실적이고 실용적인 사고방식을 가지고 있어 계획을 세우고 차근차근 실행해 나가는 능력이 뛰어납니다. 가족과 친구를 소중히 여기며, 어려운 일이 있을 때 든든한 버팀목이 되어주는 따뜻한 마음을 가지고 있습니다.',
       recommended: ['황색 보석', '도자기 소품', '사각형 모양 장식'],
       avoid: ['불안정한 구조물', '너무 밝은 색', '움직이는 장식'],
     },
     {
       condition: dominantElement === 'metal' && isYangDominant,
       title: '정의롭고 원칙을 중시하는 성향',
-      desc: '명확한 기준과 원칙을 가지고 있으며, 공정함과 정의를 추구하는 성격입니다.',
+      desc: '명확한 기준과 원칙을 가지고 있으며, 공정함과 정의를 추구하는 성격입니다. 논리적이고 체계적인 사고력을 바탕으로 문제를 해결하는 능력이 뛰어나며, 책임감이 강하고 맡은 일을 끝까지 완수하는 성실한 모습을 보입니다. 옳고 그름을 명확히 구분하며, 진실을 추구하는 올바른 가치관을 가지고 있습니다.',
       recommended: ['은 액세서리', '흰색 보석', '기하학적 디자인'],
       avoid: ['불규칙한 모양', '혼합된 색상', '부드러운 재질'],
     },
     {
       condition: dominantElement === 'water',
       title: '유연하고 적응력이 뛰어난 성향',
-      desc: '상황에 따라 유연하게 대처하는 능력이 뛰어나며, 포용력이 넓은 성격입니다.',
+      desc: '상황에 따라 유연하게 대처하는 능력이 뛰어나며, 포용력이 넓은 성격입니다. 다른 사람의 마음을 잘 이해하고 공감하는 능력이 있어 좋은 친구이자 조언자가 될 수 있습니다. 변화하는 환경에 빠르게 적응하며, 어떤 상황에서도 최선의 방법을 찾아내는 지혜로운 면을 가지고 있습니다.',
       recommended: ['푸른 보석', '물결 모양 장식', '투명한 소재'],
       avoid: ['각진 모양', '딱딱한 재질', '고정된 형태'],
     },
     {
       condition: true, // 기본값
       title: '균형잡힌 조화로운 성향',
-      desc: '안정적이고 조화로운 성격을 가지고 있으며, 다양한 상황에 잘 적응합니다.',
+      desc: '안정적이고 조화로운 성격을 가지고 있으며, 다양한 상황에 잘 적응합니다. 타인과의 관계에서 중재자 역할을 잘 수행하며, 평화를 추구하는 성향이 있습니다. 겸손하고 배려심이 깊어 많은 사람들에게 사랑받는 인격을 소유하고 있으며, 꾸준한 노력으로 자신의 목표를 차근차근 이루어 나가는 성실한 모습을 보입니다.',
       recommended: ['다양한 색상 조합', '자연 소재', '균형잡힌 디자인'],
       avoid: ['극단적인 색상', '불균형한 모양', '과도한 장식'],
     },
@@ -741,7 +741,7 @@ function parseGeminiResponse(response) {
     console.log('성향제목:', result.personalityTitle);
 
     // 유효한 결과인지 확인
-    if (result.score && result.score >= 1 && result.score <= 100) {
+    if (result.score && result.score >= 70 && result.score <= 100) {
       console.log('✓ 유효한 Gemini 응답으로 판단');
       return result;
     } else {
