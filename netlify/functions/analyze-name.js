@@ -1,1049 +1,1713 @@
-// netlify/functions/analyze-name.js
-const fetch = require('node-fetch');
-
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-
-exports.handler = async (event, context) => {
-  // CORS 헤더
-  const headers = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Content-Type': 'application/json',
-  };
-
-  // OPTIONS 요청 처리 (CORS preflight)
-  if (event.httpMethod === 'OPTIONS') {
-    return {
-      statusCode: 200,
-      headers,
-      body: '',
-    };
-  }
-
-  // POST 요청만 허용
-  if (event.httpMethod !== 'POST') {
-    return {
-      statusCode: 405,
-      headers,
-      body: JSON.stringify({ error: 'Method Not Allowed' }),
-    };
-  }
-
-  try {
-    const { name, hanja = '' } = JSON.parse(event.body);
-
-    if (!name || name.trim().length === 0) {
-      return {
-        statusCode: 400,
-        headers,
-        body: JSON.stringify({
-          success: false,
-          error: '이름을 입력해주세요.',
-        }),
-      };
-    }
-
-    console.log('=== 분석 시작 ===');
-    console.log('이름:', name);
-    console.log('한자:', hanja);
-
-    // 먼저 로컬 알고리즘으로 기본 점수 계산
-    const localResult = calculateLocalScore(name, hanja);
-    console.log('로컬 계산 결과:', JSON.stringify(localResult));
-
-    // Gemini API 호출 시도
-    let finalResult = localResult;
-
-    if (GEMINI_API_KEY) {
-      try {
-        const prompt = `한국의 전통적인 작명 이론을 바탕으로 다음 이름을 분석해주세요.
-
-이름: ${name}
-한자: ${hanja || '없음'}
-
-반드시 다음 형식으로만 답변해주세요:
-
-점수: 85
-등급: 우수
-성향제목: 리더십이 강한 성향
-성향설명: 타고난 지도력과 추진력을 가지고 있습니다. 주변 사람들에게 신뢰를 받으며 자연스럽게 리더 역할을 맡게 됩니다. 어려운 상황에서도 침착함을 유지하며 현명한 판단력으로 문제를 해결해 나갑니다. 창의적인 아이디어와 실행력을 겸비하여 목표 달성에 탁월한 능력을 보입니다.
-추천물건1: 황금 반지
-추천물건2: 붉은 보석
-추천물건3: 나무 목걸이
-피할물건1: 검은 옷
-피할물건2: 차가운 금속
-피할물건3: 깨지는 그릇
-
-위 형식을 정확히 따라 ${name} 이름을 분석해주세요. 성향설명은 반드시 3줄 이상으로 자세하게 작성해주세요.`;
-
-        console.log('Gemini API 호출 시작');
-        const response = await callGeminiAPI(prompt);
-        console.log('Gemini 원본 응답:', response);
-
-        const geminiResult = parseGeminiResponse(response);
-        console.log('Gemini 파싱 결과:', JSON.stringify(geminiResult));
-
-        // Gemini 결과가 유효하면 사용, 아니면 로컬 결과 사용
-        if (
-          geminiResult.score &&
-          geminiResult.score !== 75 &&
-          geminiResult.score >= 70 &&
-          geminiResult.score <= 100
-        ) {
-          finalResult = geminiResult;
-        }
-      } catch (apiError) {
-        console.error('Gemini API 오류, 로컬 결과 사용:', apiError);
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>작명 점수</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
       }
-    } else {
-      console.log('Gemini API 키가 없어서 로컬 결과 사용');
-    }
 
-    console.log('최종 사용 결과:', JSON.stringify(finalResult));
+      :root {
+        --primary-color: #667eea;
+        --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        --secondary-color: #f093fb;
+        --success-color: #4ade80;
+        --warning-color: #fbbf24;
+        --danger-color: #ef4444;
+        --bg-color: #ffffff;
+        --card-bg: #ffffff;
+        --text-color: #1f2937;
+        --text-light: #6b7280;
+        --border-color: #e5e7eb;
+        --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+        --shadow-lg: 0 20px 25px -5px rgb(0 0 0 / 0.1);
+      }
 
-    return {
-      statusCode: 200,
-      headers,
-      body: JSON.stringify({
-        success: true,
-        data: finalResult,
-      }),
-    };
-  } catch (error) {
-    console.error('전체 분석 오류:', error);
-    return {
-      statusCode: 500,
-      headers,
-      body: JSON.stringify({
-        success: false,
-        error: '서버 오류가 발생했습니다.',
-      }),
-    };
-  }
-};
+      [data-theme='dark'] {
+        --bg-color: #0f172a;
+        --card-bg: #1e293b;
+        --text-color: #f1f5f9;
+        --text-light: #94a3b8;
+        --border-color: #334155;
+        --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.3);
+        --shadow-lg: 0 20px 25px -5px rgb(0 0 0 / 0.3);
+      }
 
-// 한글 자음 획수 테이블 (강희자전 기준)
-const CONSONANT_STROKES = {
-  ㄱ: 2,
-  ㄲ: 4,
-  ㄴ: 2,
-  ㄷ: 3,
-  ㄸ: 6,
-  ㄹ: 5,
-  ㅁ: 4,
-  ㅂ: 4,
-  ㅃ: 8,
-  ㅅ: 2,
-  ㅆ: 4,
-  ㅇ: 1,
-  ㅈ: 3,
-  ㅉ: 6,
-  ㅊ: 4,
-  ㅋ: 3,
-  ㅌ: 4,
-  ㅍ: 4,
-  ㅎ: 3,
-};
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+          'Noto Sans KR', sans-serif;
+        background: var(--bg-color);
+        color: var(--text-color);
+        line-height: 1.6;
+        transition: all 0.3s ease;
+        min-height: 100vh;
+      }
 
-// 한글 모음 획수 테이블
-const VOWEL_STROKES = {
-  ㅏ: 2,
-  ㅐ: 3,
-  ㅑ: 3,
-  ㅒ: 4,
-  ㅓ: 2,
-  ㅔ: 3,
-  ㅕ: 3,
-  ㅖ: 4,
-  ㅗ: 2,
-  ㅘ: 4,
-  ㅙ: 5,
-  ㅚ: 3,
-  ㅛ: 3,
-  ㅜ: 2,
-  ㅝ: 4,
-  ㅞ: 5,
-  ㅟ: 3,
-  ㅠ: 3,
-  ㅡ: 1,
-  ㅢ: 2,
-  ㅣ: 1,
-};
+      .container {
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
 
-// 오행 분류 (자음 기준)
-const FIVE_ELEMENTS = {
-  wood: ['ㄱ', 'ㄲ', 'ㅋ'],
-  fire: ['ㄴ', 'ㄷ', 'ㄸ', 'ㄹ', 'ㅌ'],
-  earth: ['ㅇ'],
-  metal: ['ㅅ', 'ㅆ', 'ㅈ', 'ㅉ', 'ㅊ'],
-  water: ['ㅁ', 'ㅂ', 'ㅃ', 'ㅍ', 'ㅎ'],
-};
+      .header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 40px;
+        flex-wrap: wrap;
+        gap: 20px;
+      }
 
-// 음양 분류 (모음 기준)
-const YIN_YANG = {
-  yang: ['ㅏ', 'ㅑ', 'ㅗ', 'ㅛ'],
-  yin: ['ㅓ', 'ㅕ', 'ㅜ', 'ㅠ', 'ㅡ', 'ㅣ'],
-};
+      .title {
+        background: var(--primary-gradient);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        font-size: 2.5rem;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+      }
 
-// ===== 새로 추가된 5격 수리 관련 =====
+      .header-controls {
+        display: flex;
+        align-items: center;
+        gap: 20px;
+      }
 
-// 81수리학 길흉표 (더 정확하게 분류)
-const STROKE_FORTUNE = {
-  // 대길수 (90-95점)
-  great_fortune: [
-    1, 3, 5, 6, 7, 8, 11, 13, 15, 16, 17, 18, 21, 23, 24, 25, 31, 32, 33, 35,
-    37, 39, 41, 45, 47, 48, 52, 61, 63, 65, 67, 68,
-  ],
+      .current-time {
+        text-align: right;
+        color: var(--text-light);
+        font-size: 0.9rem;
+      }
 
-  // 길수 (80-85점)
-  fortune: [29, 38, 49, 57, 73, 75, 77, 78, 81],
+      .theme-toggle {
+        background: var(--card-bg);
+        border: 2px solid var(--border-color);
+        border-radius: 25px;
+        padding: 8px 16px;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        color: var(--text-color);
+        font-size: 0.9rem;
+      }
 
-  // 흉수 (50-60점)
-  misfortune: [
-    2, 4, 9, 10, 12, 14, 19, 20, 22, 26, 27, 28, 34, 36, 40, 42, 43, 44, 46, 50,
-    53, 54, 55, 56, 58, 59, 60, 62, 64, 66, 69, 70, 71, 72, 74, 76, 79, 80,
-  ],
+      .theme-toggle:hover {
+        border-color: var(--primary-color);
+        transform: translateY(-1px);
+      }
 
-  // 보통 (70-75점)
-  normal: [], // 위에 없는 모든 수
-};
+      .card {
+        background: var(--card-bg);
+        border-radius: 20px;
+        padding: 40px;
+        box-shadow: var(--shadow-lg);
+        border: 1px solid var(--border-color);
+        margin-bottom: 30px;
+        transition: all 0.3s ease;
+      }
 
-// 한자 의미 분석용 데이터베이스 (일부 예시)
-const HANJA_MEANINGS = {
-  // 긍정적 의미 한자들
-  positive: {
-    智: { meaning: '지혜', category: 'wisdom', score: 90 },
-    賢: { meaning: '현명함', category: 'wisdom', score: 90 },
-    仁: { meaning: '어짊', category: 'virtue', score: 85 },
-    義: { meaning: '의로움', category: 'virtue', score: 85 },
-    勇: { meaning: '용기', category: 'strength', score: 80 },
-    健: { meaning: '건강함', category: 'health', score: 85 },
-    美: { meaning: '아름다움', category: 'beauty', score: 80 },
-    光: { meaning: '빛', category: 'brightness', score: 85 },
-    明: { meaning: '밝음', category: 'brightness', score: 85 },
-    善: { meaning: '선함', category: 'virtue', score: 85 },
-    正: { meaning: '바름', category: 'virtue', score: 80 },
-    純: { meaning: '순수함', category: 'purity', score: 80 },
-    清: { meaning: '맑음', category: 'purity', score: 80 },
-    安: { meaning: '평안함', category: 'peace', score: 80 },
-    和: { meaning: '화목함', category: 'harmony', score: 80 },
-    福: { meaning: '복', category: 'fortune', score: 90 },
-    祥: { meaning: '상서로움', category: 'fortune', score: 85 },
-    瑞: { meaning: '상서로운 조짐', category: 'fortune', score: 85 },
-    吉: { meaning: '길함', category: 'fortune', score: 80 },
-    慶: { meaning: '경사', category: 'celebration', score: 80 },
-    喜: { meaning: '기쁨', category: 'joy', score: 80 },
-    樂: { meaning: '즐거움', category: 'joy', score: 80 },
-    愛: { meaning: '사랑', category: 'love', score: 85 },
-    恩: { meaning: '은혜', category: 'grace', score: 80 },
-    德: { meaning: '덕', category: 'virtue', score: 90 },
-    誠: { meaning: '성실함', category: 'sincerity', score: 85 },
-    信: { meaning: '믿음', category: 'trust', score: 80 },
-    忠: { meaning: '충성', category: 'loyalty', score: 80 },
-    孝: { meaning: '효도', category: 'filial_piety', score: 85 },
-  },
+      .input-section {
+        text-align: center;
+      }
 
-  // 부정적 의미 한자들
-  negative: {
-    凶: { meaning: '흉함', category: 'evil', score: 20 },
-    殺: { meaning: '죽임', category: 'death', score: 10 },
-    病: { meaning: '병', category: 'disease', score: 30 },
-    死: { meaning: '죽음', category: 'death', score: 10 },
-    鬼: { meaning: '귀신', category: 'ghost', score: 20 },
-    魔: { meaning: '마귀', category: 'demon', score: 20 },
-    毒: { meaning: '독', category: 'poison', score: 25 },
-    惡: { meaning: '악함', category: 'evil', score: 20 },
-    怒: { meaning: '분노', category: 'anger', score: 40 },
-    恨: { meaning: '원한', category: 'hatred', score: 30 },
-    憂: { meaning: '근심', category: 'worry', score: 40 },
-    悲: { meaning: '슬픔', category: 'sadness', score: 40 },
-    苦: { meaning: '고통', category: 'pain', score: 35 },
-    貧: { meaning: '가난', category: 'poverty', score: 30 },
-    困: { meaning: '곤란', category: 'difficulty', score: 35 },
-    破: { meaning: '깨뜨림', category: 'destruction', score: 30 },
-    敗: { meaning: '패배', category: 'defeat', score: 30 },
-    失: { meaning: '잃음', category: 'loss', score: 35 },
-    絕: { meaning: '끊어짐', category: 'severance', score: 30 },
-    暗: { meaning: '어둠', category: 'darkness', score: 40 },
-  },
-};
+      .form-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: 20px;
+        margin-bottom: 25px;
+      }
 
-// 한글 분해 함수
-function decomposeHangul(char) {
-  const code = char.charCodeAt(0) - 44032;
-  if (code < 0 || code > 11171) return null;
+      .input-group {
+        text-align: left;
+      }
 
-  const consonantIndex = Math.floor(code / 588);
-  const vowelIndex = Math.floor((code % 588) / 28);
-  const finalConsonantIndex = code % 28;
+      .input-label {
+        display: block;
+        margin-bottom: 8px;
+        font-weight: 600;
+        color: var(--text-color);
+        display: flex;
+        align-items: center;
+        gap: 5px;
+      }
 
-  const consonants = [
-    'ㄱ',
-    'ㄲ',
-    'ㄴ',
-    'ㄷ',
-    'ㄸ',
-    'ㄹ',
-    'ㅁ',
-    'ㅂ',
-    'ㅃ',
-    'ㅅ',
-    'ㅆ',
-    'ㅇ',
-    'ㅈ',
-    'ㅉ',
-    'ㅊ',
-    'ㅋ',
-    'ㅌ',
-    'ㅍ',
-    'ㅎ',
-  ];
-  const vowels = [
-    'ㅏ',
-    'ㅐ',
-    'ㅑ',
-    'ㅒ',
-    'ㅓ',
-    'ㅔ',
-    'ㅕ',
-    'ㅖ',
-    'ㅗ',
-    'ㅘ',
-    'ㅙ',
-    'ㅚ',
-    'ㅛ',
-    'ㅜ',
-    'ㅝ',
-    'ㅞ',
-    'ㅟ',
-    'ㅠ',
-    'ㅡ',
-    'ㅢ',
-    'ㅣ',
-  ];
-  const finalConsonants = [
-    '',
-    'ㄱ',
-    'ㄲ',
-    'ㄳ',
-    'ㄴ',
-    'ㄵ',
-    'ㄶ',
-    'ㄷ',
-    'ㄹ',
-    'ㄺ',
-    'ㄻ',
-    'ㄼ',
-    'ㄽ',
-    'ㄾ',
-    'ㄿ',
-    'ㅀ',
-    'ㅁ',
-    'ㅂ',
-    'ㅄ',
-    'ㅅ',
-    'ㅆ',
-    'ㅇ',
-    'ㅈ',
-    'ㅊ',
-    'ㅋ',
-    'ㅌ',
-    'ㅍ',
-    'ㅎ',
-  ];
+      .required {
+        color: var(--danger-color);
+      }
 
-  return {
-    initial: consonants[consonantIndex],
-    vowel: vowels[vowelIndex],
-    final: finalConsonants[finalConsonantIndex],
-  };
-}
+      .optional {
+        font-size: 0.8rem;
+        color: var(--text-light);
+        font-weight: 400;
+      }
 
-// 글자별 획수 계산
-function getCharacterStrokes(char) {
-  const decomposed = decomposeHangul(char);
-  if (!decomposed) return 0;
+      .input-field {
+        width: 100%;
+        padding: 15px 20px;
+        border: 2px solid var(--border-color);
+        border-radius: 15px;
+        font-size: 16px;
+        background: var(--bg-color);
+        color: var(--text-color);
+        transition: all 0.3s ease;
+        outline: none;
+      }
 
-  let strokes = 0;
-  strokes += CONSONANT_STROKES[decomposed.initial] || 0;
-  strokes += VOWEL_STROKES[decomposed.vowel] || 0;
-  if (decomposed.final) {
-    strokes += CONSONANT_STROKES[decomposed.final] || 0;
-  }
+      .input-field:focus {
+        border-color: var(--primary-color);
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+      }
 
-  return strokes;
-}
+      .input-field::placeholder {
+        color: var(--text-light);
+      }
 
-// ===== 새로 추가된 5격 수리 계산 =====
-function calculateFiveGrids(name) {
-  console.log('=== 5격 수리 계산 시작 ===');
+      .select-field {
+        width: 100%;
+        padding: 15px 20px;
+        border: 2px solid var(--border-color);
+        border-radius: 15px;
+        font-size: 16px;
+        background: var(--bg-color);
+        color: var(--text-color);
+        transition: all 0.3s ease;
+        outline: none;
+        cursor: pointer;
+      }
 
-  const chars = Array.from(name);
-  const strokes = chars.map((char) => getCharacterStrokes(char));
+      .select-field:focus {
+        border-color: var(--primary-color);
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+      }
 
-  console.log('각 글자 획수:', strokes);
+      .gender-options {
+        display: flex;
+        gap: 15px;
+        margin-top: 8px;
+      }
 
-  let grids = {};
+      .radio-option {
+        flex: 1;
+        position: relative;
+      }
 
-  if (chars.length === 2) {
-    // 성 1글자 + 이름 1글자
-    grids = {
-      천격: strokes[0] + 1, // 성 + 1
-      인격: strokes[0] + strokes[1], // 성 + 이름
-      지격: strokes[1] + 1, // 이름 + 1
-      외격: 2, // 1 + 1
-      총격: strokes[0] + strokes[1], // 전체
-    };
-  } else if (chars.length === 3) {
-    // 성 1글자 + 이름 2글자 (가장 일반적)
-    grids = {
-      천격: strokes[0] + 1, // 성 + 1
-      인격: strokes[0] + strokes[1], // 성 + 이름첫글자
-      지격: strokes[1] + strokes[2], // 이름 두글자
-      외격: 1 + strokes[2], // 1 + 이름끝글자
-      총격: strokes[0] + strokes[1] + strokes[2], // 전체
-    };
-  } else if (chars.length === 4) {
-    // 성 2글자 + 이름 2글자 또는 성 1글자 + 이름 3글자
-    if (isCommonSurname(chars[0] + chars[1])) {
-      // 성 2글자 + 이름 2글자
-      grids = {
-        천격: strokes[0] + strokes[1], // 성 두글자
-        인격: strokes[1] + strokes[2], // 성끝글자 + 이름첫글자
-        지격: strokes[2] + strokes[3], // 이름 두글자
-        외격: strokes[0] + strokes[3], // 성첫글자 + 이름끝글자
-        총격: strokes[0] + strokes[1] + strokes[2] + strokes[3], // 전체
-      };
-    } else {
-      // 성 1글자 + 이름 3글자
-      grids = {
-        천격: strokes[0] + 1, // 성 + 1
-        인격: strokes[0] + strokes[1], // 성 + 이름첫글자
-        지격: strokes[1] + strokes[2] + strokes[3], // 이름 세글자
-        외격: 1 + strokes[2] + strokes[3], // 1 + 이름 중간글자 + 끝글자
-        총격: strokes[0] + strokes[1] + strokes[2] + strokes[3], // 전체
-      };
-    }
-  } else {
-    // 기타 경우 기본 계산
-    grids = {
-      천격: strokes[0] + 1,
-      인격: strokes[0] + (strokes[1] || 0),
-      지격: strokes.slice(1).reduce((a, b) => a + b, 0) || 1,
-      외격: strokes[0] + (strokes[strokes.length - 1] || 0),
-      총격: strokes.reduce((a, b) => a + b, 0),
-    };
-  }
+      .radio-input {
+        position: absolute;
+        opacity: 0;
+        pointer-events: none;
+      }
 
-  // 각 격의 길흉 판정
-  const gridScores = {};
-  for (let [gridName, strokeCount] of Object.entries(grids)) {
-    const remainder = strokeCount % 81;
-    gridScores[gridName] = evaluateStrokeScore(remainder);
-  }
+      .radio-label {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 15px 20px;
+        border: 2px solid var(--border-color);
+        border-radius: 15px;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        background: var(--bg-color);
+        color: var(--text-color);
+        font-weight: 500;
+      }
 
-  console.log('5격:', grids);
-  console.log('5격 점수:', gridScores);
+      .radio-label:hover {
+        border-color: var(--primary-color);
+        background: rgba(102, 126, 234, 0.05);
+      }
 
-  return { grids, gridScores };
-}
+      .radio-input:checked + .radio-label {
+        border-color: var(--primary-color);
+        background: rgba(102, 126, 234, 0.1);
+        color: var(--primary-color);
+        font-weight: 600;
+      }
 
-// 획수 길흉 평가
-function evaluateStrokeScore(remainder) {
-  if (STROKE_FORTUNE.great_fortune.includes(remainder)) {
-    return 90;
-  } else if (STROKE_FORTUNE.fortune.includes(remainder)) {
-    return 80;
-  } else if (STROKE_FORTUNE.misfortune.includes(remainder)) {
-    return 50;
-  } else {
-    return 70; // 보통
-  }
-}
+      .info-card {
+        background: rgba(102, 126, 234, 0.05);
+        border: 1px solid rgba(102, 126, 234, 0.1);
+        border-radius: 15px;
+        padding: 20px;
+        margin: 20px 0;
+        text-align: left;
+      }
 
-// 일반적인 성씨 판별 (간단한 버전)
-function isCommonSurname(surname) {
-  const twoCharSurnames = [
-    '남궁',
-    '독고',
-    '황보',
-    '제갈',
-    '사공',
-    '선우',
-    '동방',
-    '망절',
-  ];
-  return twoCharSurnames.includes(surname);
-}
+      .info-title {
+        font-weight: 600;
+        color: var(--primary-color);
+        margin-bottom: 8px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
 
-// ===== 새로 추가된 한자 의미 분석 =====
-function analyzeHanjaMeaning(hanja) {
-  console.log('=== 한자 의미 분석 시작 ===');
+      .info-desc {
+        color: var(--text-light);
+        font-size: 0.9rem;
+        line-height: 1.5;
+      }
 
-  if (!hanja || hanja.trim().length === 0) {
-    console.log('한자가 없어 의미 분석 불가');
-    return {
-      hasHanja: false,
-      meanings: [],
-      overallScore: 70,
-      categories: [],
-      issues: [],
-    };
-  }
+      .btn {
+        background: var(--primary-gradient);
+        color: white;
+        border: none;
+        padding: 15px 40px;
+        border-radius: 25px;
+        font-size: 16px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        box-shadow: var(--shadow);
+        margin-top: 20px;
+      }
 
-  const hanjaChars = Array.from(hanja.trim());
-  const meanings = [];
-  const categories = [];
-  const issues = [];
-  let totalScore = 0;
+      .btn:hover {
+        transform: translateY(-2px);
+        box-shadow: var(--shadow-lg);
+      }
 
-  console.log('분석할 한자:', hanjaChars);
+      .btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+        transform: none;
+      }
 
-  for (let char of hanjaChars) {
-    let meaning = null;
-    let score = 70; // 기본 점수
+      .btn-secondary {
+        background: var(--card-bg);
+        color: var(--text-color);
+        border: 2px solid var(--border-color);
+      }
 
-    if (HANJA_MEANINGS.positive[char]) {
-      meaning = HANJA_MEANINGS.positive[char];
-      score = meaning.score;
-      categories.push(meaning.category);
-    } else if (HANJA_MEANINGS.negative[char]) {
-      meaning = HANJA_MEANINGS.negative[char];
-      score = meaning.score;
-      categories.push(meaning.category);
-      issues.push(`'${char}(${meaning.meaning})'는 부정적 의미를 가집니다.`);
-    } else {
-      // 데이터베이스에 없는 한자는 중립적으로 처리
-      meaning = { meaning: '알 수 없음', category: 'unknown', score: 70 };
-    }
+      .loading {
+        display: none;
+        text-align: center;
+        margin: 30px 0;
+      }
 
-    meanings.push({
-      char: char,
-      meaning: meaning.meaning,
-      category: meaning.category,
-      score: score,
-    });
+      .spinner {
+        width: 40px;
+        height: 40px;
+        border: 4px solid var(--border-color);
+        border-top: 4px solid var(--primary-color);
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin: 0 auto 15px;
+      }
 
-    totalScore += score;
-  }
-
-  const averageScore = Math.round(totalScore / hanjaChars.length);
-
-  // 조합 분석 (간단한 버전)
-  if (hanjaChars.length >= 2) {
-    const combinationIssues = checkHanjaCombination(hanjaChars);
-    issues.push(...combinationIssues);
-  }
-
-  const result = {
-    hasHanja: true,
-    meanings: meanings,
-    overallScore: Math.max(30, Math.min(100, averageScore)), // 30-100 범위로 제한
-    categories: [...new Set(categories)], // 중복 제거
-    issues: issues,
-  };
-
-  console.log('한자 의미 분석 결과:', result);
-  return result;
-}
-
-// 한자 조합 분석
-function checkHanjaCombination(hanjaChars) {
-  const issues = [];
-
-  // 같은 의미의 한자가 반복되는지 확인
-  const meanings = hanjaChars.map((char) => {
-    if (HANJA_MEANINGS.positive[char])
-      return HANJA_MEANINGS.positive[char].category;
-    if (HANJA_MEANINGS.negative[char])
-      return HANJA_MEANINGS.negative[char].category;
-    return 'unknown';
-  });
-
-  const duplicateCategories = meanings.filter(
-    (item, index) => meanings.indexOf(item) !== index
-  );
-  if (duplicateCategories.length > 0) {
-    issues.push('유사한 의미의 한자가 반복되어 단조로울 수 있습니다.');
-  }
-
-  // 상반된 의미의 조합 확인
-  const hasPositive = hanjaChars.some((char) => HANJA_MEANINGS.positive[char]);
-  const hasNegative = hanjaChars.some((char) => HANJA_MEANINGS.negative[char]);
-  if (hasPositive && hasNegative) {
-    issues.push('긍정적 의미와 부정적 의미가 혼재되어 모순적입니다.');
-  }
-
-  return issues;
-}
-
-// 오행 조화 분석
-function analyzeFiveElements(name) {
-  const elements = [];
-
-  for (let char of name) {
-    const decomposed = decomposeHangul(char);
-    if (decomposed) {
-      for (let [element, consonants] of Object.entries(FIVE_ELEMENTS)) {
-        if (consonants.includes(decomposed.initial)) {
-          elements.push(element);
-          break;
+      @keyframes spin {
+        0% {
+          transform: rotate(0deg);
+        }
+        100% {
+          transform: rotate(360deg);
         }
       }
-    }
-  }
 
-  const harmony = calculateElementHarmony(elements);
-  return { elements, harmony };
-}
-
-// 오행 조화도 계산
-function calculateElementHarmony(elements) {
-  if (elements.length < 2) return 50;
-
-  const generationCycle = {
-    wood: 'fire',
-    fire: 'earth',
-    earth: 'metal',
-    metal: 'water',
-    water: 'wood',
-  };
-
-  const destructionCycle = {
-    wood: 'earth',
-    fire: 'metal',
-    earth: 'water',
-    metal: 'wood',
-    water: 'fire',
-  };
-
-  let harmonyScore = 50;
-
-  for (let i = 0; i < elements.length - 1; i++) {
-    const current = elements[i];
-    const next = elements[i + 1];
-
-    if (generationCycle[current] === next) {
-      harmonyScore += 15;
-    } else if (destructionCycle[current] === next) {
-      harmonyScore -= 10;
-    } else if (current === next) {
-      harmonyScore += 5;
-    }
-  }
-
-  return Math.max(0, Math.min(100, harmonyScore));
-}
-
-// 음양 조화 분석
-function analyzeYinYang(name) {
-  let yangCount = 0;
-  let yinCount = 0;
-
-  for (let char of name) {
-    const decomposed = decomposeHangul(char);
-    if (decomposed) {
-      if (YIN_YANG.yang.includes(decomposed.vowel)) {
-        yangCount++;
-      } else if (YIN_YANG.yin.includes(decomposed.vowel)) {
-        yinCount++;
+      .result-section {
+        display: none;
       }
-    }
-  }
 
-  const total = yangCount + yinCount;
-  if (total === 0) return 50;
-
-  const ratio = Math.min(yangCount, yinCount) / total;
-  return Math.round(ratio * 100);
-}
-
-// 발음 및 어감 분석
-function analyzePronunciation(name) {
-  let score = 70;
-
-  const chars = Array.from(name);
-  for (let i = 0; i < chars.length - 1; i++) {
-    const current = decomposeHangul(chars[i]);
-    const next = decomposeHangul(chars[i + 1]);
-
-    if (current && next) {
-      if (current.initial === next.initial) score -= 5;
-      if (current.vowel === next.vowel) score -= 3;
-    }
-  }
-
-  const difficultCombinations = ['ㅂㅁ', 'ㅊㅈ', 'ㅋㄱ', 'ㅌㄷ', 'ㅆㅅ'];
-  for (let combination of difficultCombinations) {
-    if (name.includes(combination)) score -= 10;
-  }
-
-  const softSounds = ['ㄴ', 'ㅅ', 'ㄹ', 'ㅇ'];
-  let softCount = 0;
-  for (let char of name) {
-    const decomposed = decomposeHangul(char);
-    if (decomposed && softSounds.includes(decomposed.initial)) {
-      softCount++;
-    }
-  }
-  score += softCount * 3;
-
-  return Math.max(50, Math.min(100, score));
-}
-
-// 개선된 로컬 점수 계산 함수 (5격 수리 + 한자 의미 분석 포함)
-function calculateLocalScore(name, hanja = '') {
-  console.log('=== 전문적인 작명 분석 시작 ===');
-  console.log('분석할 이름:', name);
-
-  const nameLength = name.length;
-
-  // 1. 기본 구조 점수 (이름 길이) - 15%
-  let structureScore = 0;
-  switch (nameLength) {
-    case 2:
-      structureScore = 75;
-      break;
-    case 3:
-      structureScore = 85;
-      break;
-    case 4:
-      structureScore = 80;
-      break;
-    default:
-      structureScore = 70;
-      break;
-  }
-  console.log('구조 점수:', structureScore);
-
-  // 2. 5격 수리 분석 - 30% (가장 중요)
-  const fiveGridsAnalysis = calculateFiveGrids(name);
-  const fiveGridsScore = calculateAverageFiveGridsScore(
-    fiveGridsAnalysis.gridScores
-  );
-  console.log('5격 수리 점수:', fiveGridsScore);
-
-  // 3. 한자 의미 분석 - 25% (매우 중요)
-  const hanjaMeaningAnalysis = analyzeHanjaMeaning(hanja);
-  const hanjaMeaningScore = hanjaMeaningAnalysis.overallScore;
-  console.log('한자 의미 점수:', hanjaMeaningScore);
-
-  // 4. 오행 조화 분석 - 15%
-  const elementAnalysis = analyzeFiveElements(name);
-  const elementScore = elementAnalysis.harmony;
-  console.log('오행 조화 점수:', elementScore);
-
-  // 5. 음양 조화 분석 - 10%
-  const yinYangScore = analyzeYinYang(name);
-  console.log('음양 조화 점수:', yinYangScore);
-
-  // 6. 발음 및 어감 분석 - 5%
-  const pronunciationScore = analyzePronunciation(name);
-  console.log('발음 점수:', pronunciationScore);
-
-  // 안전한 점수들로 변환
-  const safeStructureScore = structureScore || 75;
-  const safeFiveGridsScore = fiveGridsScore || 75;
-  const safeHanjaMeaningScore = hanjaMeaningScore || 70;
-  const safeElementScore = elementScore || 75;
-  const safeYinYangScore = yinYangScore || 75;
-  const safePronunciationScore = pronunciationScore || 75;
-
-  console.log('안전한 점수들:', {
-    structure: safeStructureScore,
-    fiveGrids: safeFiveGridsScore,
-    hanjaMeaning: safeHanjaMeaningScore,
-    element: safeElementScore,
-    yinyang: safeYinYangScore,
-    pronunciation: safePronunciationScore,
-  });
-
-  // 최종 점수 계산 (새로운 가중치)
-  const weightedScore =
-    safeStructureScore * 0.15 + // 구조 15%
-    safeFiveGridsScore * 0.3 + // 5격 수리 30% (가장 중요)
-    safeHanjaMeaningScore * 0.25 + // 한자 의미 25%
-    safeElementScore * 0.15 + // 오행 15%
-    safeYinYangScore * 0.1 + // 음양 10%
-    safePronunciationScore * 0.05; // 발음 5%
-
-  const finalScore = Math.round(weightedScore);
-
-  console.log('가중 점수:', weightedScore);
-  console.log('최종 점수:', finalScore);
-
-  // 성향 및 추천사항 결정 (한자 의미도 고려)
-  const personality = determinePersonality(
-    name,
-    elementAnalysis,
-    safeYinYangScore,
-    finalScore,
-    hanjaMeaningAnalysis
-  );
-
-  // 상세한 분석 결과 포함
-  const result = {
-    score: Math.max(65, Math.min(100, finalScore)), // 최소 점수 65점
-    grade: finalScore >= 85 ? '우수' : finalScore >= 75 ? '보통' : '개선필요',
-    personalityTitle: personality.title,
-    personalityDesc: personality.desc,
-    recommended1: personality.recommended[0],
-    recommended2: personality.recommended[1],
-    recommended3: personality.recommended[2],
-    avoid1: personality.avoid[0],
-    avoid2: personality.avoid[1],
-    avoid3: personality.avoid[2],
-
-    // 추가된 상세 분석 정보
-    detailedAnalysis: {
-      fiveGrids: fiveGridsAnalysis,
-      hanjaMeaning: hanjaMeaningAnalysis,
-      elementAnalysis: elementAnalysis,
-      scores: {
-        structure: safeStructureScore,
-        fiveGrids: safeFiveGridsScore,
-        hanjaMeaning: safeHanjaMeaningScore,
-        element: safeElementScore,
-        yinyang: safeYinYangScore,
-        pronunciation: safePronunciationScore,
-      },
-    },
-  };
-
-  console.log('최종 결과:', result);
-  return result;
-}
-
-// 5격 수리 평균 점수 계산
-function calculateAverageFiveGridsScore(gridScores) {
-  const scores = Object.values(gridScores);
-  const total = scores.reduce((sum, score) => sum + score, 0);
-  return Math.round(total / scores.length);
-}
-
-// 성향 결정 함수 (한자 의미 분석 추가 고려)
-function determinePersonality(
-  name,
-  elementAnalysis,
-  yinYangScore,
-  totalScore,
-  hanjaMeaningAnalysis
-) {
-  const dominantElement = getMostCommonElement(elementAnalysis.elements);
-  const isYangDominant = yinYangScore > 60;
-
-  // 한자 의미에서 주요 카테고리 추출
-  const hanjaCategories = hanjaMeaningAnalysis.hasHanja
-    ? hanjaMeaningAnalysis.categories
-    : [];
-  const hasWisdomHanja = hanjaCategories.includes('wisdom');
-  const hasVirtueHanja = hanjaCategories.includes('virtue');
-  const hasFortuneHanja = hanjaCategories.includes('fortune');
-  const hasStrengthHanja = hanjaCategories.includes('strength');
-
-  const personalityTypes = [
-    {
-      condition: hasWisdomHanja && dominantElement === 'water',
-      title: '지혜롭고 깊이 있는 사색가적 성향',
-      desc: '탁월한 지적 능력과 깊은 사색력을 바탕으로 복잡한 문제들을 해결해나가는 능력이 뛰어납니다. 책을 좋아하고 학문에 대한 열정이 높으며, 다른 사람들에게 좋은 조언자 역할을 하는 경우가 많습니다. 신중하고 차분한 성격으로 감정적이기보다는 이성적인 판단을 중시하며, 장기적인 관점에서 계획을 세우고 실행하는 능력이 뛰어납니다. 때로는 너무 완벽을 추구하여 결정을 내리는데 시간이 걸리기도 하지만, 한번 결정한 일은 끝까지 책임지고 완수하는 성실함을 보입니다.',
-      recommended: ['푸른 보석', '책상용 수정', '차분한 색상의 문구류'],
-      avoid: ['화려한 액세서리', '시끄러운 환경', '성급한 결정'],
-    },
-    {
-      condition: hasVirtueHanja && dominantElement === 'earth',
-      title: '덕망 있고 신뢰받는 리더적 성향',
-      desc: '높은 도덕성과 올바른 가치관을 바탕으로 주변 사람들에게 존경받는 인격을 소유하고 있습니다. 정직하고 성실한 태도로 일을 처리하며, 어려운 상황에서도 원칙을 지키려는 강한 의지를 가지고 있습니다. 타인을 배려하는 마음이 깊고 봉사정신이 투철하여 자연스럽게 리더의 역할을 맡게 되는 경우가 많습니다. 겸손한 자세로 지속적으로 자기 계발에 힘쓰며, 가족과 공동체를 위해 희생할 줄 아는 따뜻한 인품을 지니고 있어 많은 사람들에게 사랑받습니다.',
-      recommended: ['황색 보석', '나무 소재 장식품', '전통적인 디자인'],
-      avoid: ['부정적인 환경', '이기적인 행동', '원칙을 벗어나는 일'],
-    },
-    {
-      condition: hasFortuneHanja && isYangDominant,
-      title: '운이 좋고 번영을 이끄는 성향',
-      desc: '타고난 복운과 긍정적인 에너지를 가지고 있어 어떤 일을 하든 좋은 결과를 얻는 경우가 많습니다. 낙천적이고 밝은 성격으로 주변 사람들에게 희망과 용기를 주는 존재이며, 새로운 도전을 두려워하지 않는 진취적인 기상을 보입니다. 사업이나 투자에 대한 감각이 뛰어나고 기회를 포착하는 능력이 탁월하여 경제적 성공을 이루는 경우가 많습니다. 관대하고 너그러운 마음으로 다른 사람들과 이익을 나누며, 그로 인해 더욱 큰 복을 받는 선순환의 삶을 살아갑니다.',
-      recommended: ['금색 액세서리', '밝은 보석', '원형 모양 장식'],
-      avoid: ['어두운 색상', '부정적인 생각', '과도한 욕심'],
-    },
-    {
-      condition: hasStrengthHanja && dominantElement === 'fire',
-      title: '용기 있고 추진력이 강한 개척자적 성향',
-      desc: '강한 의지력과 불굴의 정신력을 바탕으로 어려운 일도 포기하지 않고 끝까지 해내는 성격입니다. 도전 정신이 투철하고 새로운 분야를 개척하는 것을 좋아하며, 위기 상황에서 오히려 더욱 빛나는 능력을 발휘합니다. 정의감이 강하고 약자를 보호하려는 마음이 크며, 불의를 보면 참지 못하는 정열적인 면을 가지고 있습니다. 때로는 성급하게 행동하여 실수를 하기도 하지만, 빠른 판단력과 실행력으로 문제를 신속하게 해결하는 능력이 뛰어나며, 주변 사람들에게 강한 추진력과 에너지를 전달합니다.',
-      recommended: ['붉은 보석', '역동적인 디자인', '스포츠 용품'],
-      avoid: ['소극적인 태도', '차가운 색상', '정적인 환경'],
-    },
-    {
-      condition: dominantElement === 'wood' && yinYangScore < 60,
-      title: '창의적이고 성장 지향적인 성향',
-      desc: '끊임없이 발전하고 성장하려는 의지가 강하며, 새로운 것에 대한 호기심이 많습니다. 예술적 감각이 뛰어나고 독창적인 아이디어를 잘 발휘하는 창조적 인재의 면모를 갖추고 있습니다. 자연을 사랑하고 환경을 중시하는 성향이 있으며, 꾸준한 노력으로 자신의 꿈을 실현해 나가는 끈기있는 모습을 보입니다. 협조적이고 포용력이 넓어 팀워크를 중시하며, 다른 사람들과 함께 성장하고 발전하는 것을 추구합니다.',
-      recommended: ['녹색 보석', '나무 장식구', '자연 소재 용품'],
-      avoid: ['금속 장식구', '인공적인 소재', '날카로운 모양'],
-    },
-    {
-      condition: dominantElement === 'metal' && isYangDominant,
-      title: '정의롭고 원칙을 중시하는 성향',
-      desc: '명확한 기준과 원칙을 가지고 있으며, 공정함과 정의를 추구하는 성격입니다. 논리적이고 체계적인 사고력을 바탕으로 문제를 해결하는 능력이 뛰어나며, 책임감이 강하고 맡은 일을 끝까지 완수하는 성실한 모습을 보입니다. 옳고 그름을 명확히 구분하며, 진실을 추구하는 올바른 가치관을 가지고 있습니다. 때로는 융통성이 부족해 보일 수 있지만, 신뢰할 수 있는 성격으로 많은 사람들에게 의지가 되는 존재입니다.',
-      recommended: ['은 액세서리', '흰색 보석', '기하학적 디자인'],
-      avoid: ['불규칙한 모양', '혼합된 색상', '부드러운 재질'],
-    },
-    {
-      condition: true, // 기본값
-      title: '균형잡힌 조화로운 성향',
-      desc: '안정적이고 조화로운 성격을 가지고 있으며, 다양한 상황에 잘 적응합니다. 타인과의 관계에서 중재자 역할을 잘 수행하며, 평화를 추구하는 성향이 있습니다. 겸손하고 배려심이 깊어 많은 사람들에게 사랑받는 인격을 소유하고 있으며, 꾸준한 노력으로 자신의 목표를 차근차근 이루어 나가는 성실한 모습을 보입니다. 감정의 기복이 적고 안정된 심리상태를 유지하여 주변 사람들에게 편안함을 주는 존재입니다.',
-      recommended: ['다양한 색상 조합', '자연 소재', '균형잡힌 디자인'],
-      avoid: ['극단적인 색상', '불균형한 모양', '과도한 장식'],
-    },
-  ];
-
-  return personalityTypes.find((type) => type.condition);
-}
-
-// 가장 많이 나타나는 오행 원소 찾기
-function getMostCommonElement(elements) {
-  const counts = {};
-  elements.forEach((element) => {
-    counts[element] = (counts[element] || 0) + 1;
-  });
-
-  return Object.keys(counts).reduce((a, b) => (counts[a] > counts[b] ? a : b));
-}
-
-// Gemini API 호출
-async function callGeminiAPI(prompt) {
-  if (!GEMINI_API_KEY) {
-    throw new Error('Gemini API 키가 설정되지 않았습니다.');
-  }
-
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
-
-  const payload = {
-    contents: [
-      {
-        parts: [
-          {
-            text: prompt,
-          },
-        ],
-      },
-    ],
-    generationConfig: {
-      temperature: 0.3,
-      topK: 20,
-      topP: 0.8,
-      maxOutputTokens: 1024,
-    },
-  };
-
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(payload),
-  });
-
-  if (!response.ok) {
-    throw new Error(
-      `Gemini API 호출 실패: ${response.status} ${response.statusText}`
-    );
-  }
-
-  const data = await response.json();
-
-  console.log('Gemini API 응답:', JSON.stringify(data));
-
-  if (data.candidates && data.candidates[0] && data.candidates[0].content) {
-    return data.candidates[0].content.parts[0].text;
-  } else {
-    console.error('Gemini API 오류:', data);
-    throw new Error('Gemini API 응답 오류: ' + JSON.stringify(data));
-  }
-}
-
-// Gemini 응답 파싱
-function parseGeminiResponse(response) {
-  try {
-    console.log('=== 파싱 시작 ===');
-    console.log('원본 응답 길이:', response.length);
-    console.log('원본 응답 내용:', response);
-
-    if (!response || response.trim().length === 0) {
-      console.log('응답이 비어있음');
-      return { score: null };
-    }
-
-    const lines = response
-      .split('\n')
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0);
-    console.log('파싱할 라인 수:', lines.length);
-
-    const result = {};
-
-    lines.forEach((line, index) => {
-      console.log(`라인 ${index}: "${line}"`);
-
-      if (line.match(/점수\s*[:：]\s*\d+/)) {
-        const scoreMatch = line.match(/점수\s*[:：]\s*(\d+)/);
-        if (scoreMatch) {
-          result.score = parseInt(scoreMatch[1]);
-          console.log('✓ 점수 파싱됨:', result.score);
-        }
-      } else if (line.match(/등급\s*[:：]/)) {
-        const gradeMatch = line.match(/등급\s*[:：]\s*(.+)/);
-        if (gradeMatch) {
-          result.grade = gradeMatch[1].trim();
-          console.log('✓ 등급 파싱됨:', result.grade);
-        }
-      } else if (line.match(/성향제목\s*[:：]/)) {
-        const titleMatch = line.match(/성향제목\s*[:：]\s*(.+)/);
-        if (titleMatch) {
-          result.personalityTitle = titleMatch[1].trim();
-          console.log('✓ 성향제목 파싱됨:', result.personalityTitle);
-        }
-      } else if (line.match(/성향설명\s*[:：]/)) {
-        const descMatch = line.match(/성향설명\s*[:：]\s*(.+)/);
-        if (descMatch) {
-          result.personalityDesc = descMatch[1].trim();
-          console.log('✓ 성향설명 파싱됨:', result.personalityDesc);
-        }
-      } else if (line.match(/추천물건1\s*[:：]/)) {
-        const match = line.match(/추천물건1\s*[:：]\s*(.+)/);
-        if (match) {
-          result.recommended1 = match[1].trim();
-          console.log('✓ 추천물건1 파싱됨:', result.recommended1);
-        }
-      } else if (line.match(/추천물건2\s*[:：]/)) {
-        const match = line.match(/추천물건2\s*[:：]\s*(.+)/);
-        if (match) result.recommended2 = match[1].trim();
-      } else if (line.match(/추천물건3\s*[:：]/)) {
-        const match = line.match(/추천물건3\s*[:：]\s*(.+)/);
-        if (match) result.recommended3 = match[1].trim();
-      } else if (line.match(/피할물건1\s*[:：]/)) {
-        const match = line.match(/피할물건1\s*[:：]\s*(.+)/);
-        if (match) result.avoid1 = match[1].trim();
-      } else if (line.match(/피할물건2\s*[:：]/)) {
-        const match = line.match(/피할물건2\s*[:：]\s*(.+)/);
-        if (match) result.avoid2 = match[1].trim();
-      } else if (line.match(/피할물건3\s*[:：]/)) {
-        const match = line.match(/피할물건3\s*[:：]\s*(.+)/);
-        if (match) result.avoid3 = match[1].trim();
+      .score-display {
+        text-align: center;
+        margin-bottom: 40px;
       }
-    });
 
-    console.log('=== 파싱 결과 ===');
-    console.log('점수:', result.score);
-    console.log('등급:', result.grade);
-    console.log('성향제목:', result.personalityTitle);
+      .score-circle {
+        position: relative;
+        width: 200px;
+        height: 200px;
+        margin: 0 auto 20px;
+      }
 
-    if (result.score && result.score >= 70 && result.score <= 100) {
-      console.log('✓ 유효한 Gemini 응답으로 판단');
-      return result;
-    } else {
-      console.log('✗ 무효한 응답, 로컬 계산 사용 권장');
-      return { score: null };
-    }
-  } catch (error) {
-    console.error('파싱 중 오류:', error);
-    return { score: null };
-  }
-}
+      .progress-ring {
+        transform: rotate(-90deg);
+      }
+
+      .progress-ring-circle {
+        fill: none;
+        stroke-width: 8;
+        transition: stroke-dashoffset 2s ease-in-out;
+      }
+
+      .progress-ring-bg {
+        stroke: var(--border-color);
+        opacity: 0.3;
+      }
+
+      .progress-ring-fill {
+        stroke-linecap: round;
+        transition: stroke 1s ease-in-out;
+      }
+
+      .score-number {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        font-size: 2.5rem;
+        font-weight: 900;
+        margin-bottom: 5px;
+      }
+
+      .score-text {
+        position: absolute;
+        top: 60%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        font-size: 0.9rem;
+        color: var(--text-light);
+      }
+
+      .score-grade {
+        display: inline-block;
+        padding: 8px 20px;
+        border-radius: 20px;
+        font-weight: 600;
+        font-size: 0.9rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+
+      .grade-excellent {
+        background: rgba(74, 222, 128, 0.1);
+        color: var(--success-color);
+        border: 1px solid rgba(74, 222, 128, 0.2);
+      }
+
+      .grade-good {
+        background: rgba(251, 191, 36, 0.1);
+        color: var(--warning-color);
+        border: 1px solid rgba(251, 191, 36, 0.2);
+      }
+
+      .grade-poor {
+        background: rgba(239, 68, 68, 0.1);
+        color: var(--danger-color);
+        border: 1px solid rgba(239, 68, 68, 0.2);
+      }
+
+      .analysis-sections {
+        display: grid;
+        gap: 30px;
+      }
+
+      .section-title {
+        font-size: 1.5rem;
+        font-weight: 700;
+        margin-bottom: 15px;
+        color: var(--text-color);
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .personality-title {
+        font-size: 1.2rem;
+        font-weight: 600;
+        color: var(--primary-color);
+        margin-bottom: 10px;
+      }
+
+      .personality-desc {
+        color: var(--text-light);
+        line-height: 1.7;
+      }
+
+      .saju-info {
+        background: var(--bg-color);
+        border: 2px solid var(--border-color);
+        border-radius: 15px;
+        padding: 20px;
+        margin: 15px 0;
+      }
+
+      .saju-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 15px;
+        margin-top: 15px;
+      }
+
+      .pillar {
+        text-align: center;
+        padding: 15px;
+        background: rgba(102, 126, 234, 0.05);
+        border-radius: 10px;
+        border: 1px solid rgba(102, 126, 234, 0.1);
+      }
+
+      .pillar-title {
+        font-size: 0.8rem;
+        color: var(--text-light);
+        margin-bottom: 5px;
+      }
+
+      .pillar-value {
+        font-size: 1.1rem;
+        font-weight: 600;
+        color: var(--primary-color);
+      }
+
+      .items-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 20px;
+        margin-top: 20px;
+      }
+
+      .item-card {
+        background: var(--bg-color);
+        border: 2px solid var(--border-color);
+        border-radius: 15px;
+        padding: 20px;
+        text-align: center;
+        transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        position: relative;
+        overflow: hidden;
+        transform: translateY(0);
+        opacity: 1;
+      }
+
+      .item-card::before {
+        content: '';
+        position: absolute;
+        top: -50%;
+        left: -50%;
+        width: 200%;
+        height: 200%;
+        background: radial-gradient(
+          circle,
+          rgba(255, 255, 255, 0.1) 0%,
+          transparent 70%
+        );
+        transform: scale(0);
+        transition: transform 0.6s ease;
+      }
+
+      .item-card:hover::before {
+        transform: scale(1);
+      }
+
+      .item-card:hover {
+        transform: translateY(-8px) scale(1.02);
+        box-shadow: 0 15px 30px rgba(0, 0, 0, 0.15);
+      }
+
+      .item-card.recommended {
+        border-color: var(--success-color);
+        background: rgba(74, 222, 128, 0.05);
+      }
+
+      .item-card.recommended:hover {
+        border-color: var(--success-color);
+        box-shadow: 0 15px 30px rgba(74, 222, 128, 0.3);
+      }
+
+      .item-card.avoid {
+        border-color: var(--danger-color);
+        background: rgba(239, 68, 68, 0.05);
+      }
+
+      .item-card.avoid:hover {
+        border-color: var(--danger-color);
+        box-shadow: 0 15px 30px rgba(239, 68, 68, 0.3);
+      }
+
+      .item-icon {
+        font-size: 2rem;
+        margin-bottom: 10px;
+      }
+
+      .item-name {
+        font-weight: 600;
+        color: var(--text-color);
+      }
+
+      .hidden {
+        display: none !important;
+      }
+
+      .fade-in {
+        animation: fadeIn 0.6s ease-out forwards;
+      }
+
+      .fade-in-up {
+        animation: fadeInUp 0.8s ease-out forwards;
+      }
+
+      .stagger-1 { animation-delay: 0.1s; }
+      .stagger-2 { animation-delay: 0.2s; }
+      .stagger-3 { animation-delay: 0.3s; }
+      .stagger-4 { animation-delay: 0.4s; }
+      .stagger-5 { animation-delay: 0.5s; }
+      .stagger-6 { animation-delay: 0.6s; }
+
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(20px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      @keyframes fadeInUp {
+        from {
+          opacity: 0;
+          transform: translateY(30px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      @keyframes bounceIn {
+        0% {
+          opacity: 0;
+          transform: scale(0.3);
+        }
+        50% {
+          opacity: 1;
+          transform: scale(1.05);
+        }
+        70% {
+          transform: scale(0.9);
+        }
+        100% {
+          opacity: 1;
+          transform: scale(1);
+        }
+      }
+
+      .bounce-in {
+        animation: bounceIn 0.8s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+      }
+
+      .share-button {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border: none;
+        padding: 12px 30px;
+        border-radius: 20px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        margin-top: 20px;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .share-button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
+      }
+
+      .share-button.copied {
+        background: var(--success-color);
+        transform: scale(0.95);
+      }
+
+      .result-header {
+        text-align: center;
+        margin-bottom: 30px;
+      }
+
+      .result-name {
+        font-size: 1.5rem;
+        font-weight: 700;
+        color: var(--text-color);
+        margin-bottom: 5px;
+      }
+
+      .result-hanja {
+        font-size: 1.1rem;
+        color: var(--text-light);
+        font-style: italic;
+      }
+
+      .result-info {
+        font-size: 0.9rem;
+        color: var(--text-light);
+        margin-top: 5px;
+      }
+
+      .error-message {
+        background: rgba(239, 68, 68, 0.1);
+        color: var(--danger-color);
+        padding: 15px 20px;
+        border-radius: 10px;
+        border: 1px solid rgba(239, 68, 68, 0.2);
+        margin: 20px 0;
+        display: none;
+      }
+
+      /* 모바일 반응형 */
+      @media (max-width: 768px) {
+        .container {
+          padding: 15px;
+        }
+
+        .title {
+          font-size: 2rem;
+        }
+
+        .card {
+          padding: 25px 20px;
+        }
+
+        .form-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .gender-options {
+          flex-direction: column;
+        }
+
+        .saju-grid {
+          grid-template-columns: repeat(2, 1fr);
+        }
+
+        .score-number {
+          font-size: 3rem;
+        }
+
+        .items-grid {
+          grid-template-columns: 1fr;
+          gap: 15px;
+        }
+
+        .header {
+          text-align: center;
+        }
+
+        .header-controls {
+          width: 100%;
+          justify-content: center;
+        }
+      }
+
+      @media (max-width: 480px) {
+        .title {
+          font-size: 1.8rem;
+        }
+
+        .input-field {
+          font-size: 16px; /* iOS zoom 방지 */
+        }
+
+        .btn {
+          width: 100%;
+          max-width: 300px;
+        }
+
+        .saju-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body data-theme="light">
+    <div class="container">
+      <header class="header">
+        <h1 class="title">작명 점수</h1>
+        <div class="header-controls">
+          <div class="current-time">
+            <div id="currentDate"></div>
+            <div id="currentTime"></div>
+          </div>
+          <button class="theme-toggle" onclick="toggleTheme()">
+            <span id="themeIcon">🌙</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- 입력 화면 -->
+      <div class="card input-section" id="inputSection">
+        <div class="form-grid">
+          <div class="input-group">
+            <label class="input-label" for="nameInput">
+              이름 <span class="required">*</span>
+            </label>
+            <input
+              type="text"
+              id="nameInput"
+              class="input-field"
+              placeholder="홍길동"
+              maxlength="10"
+              required
+            />
+          </div>
+          
+          <div class="input-group">
+            <label class="input-label" for="hanjaInput">
+              한자 <span class="optional">(선택사항)</span>
+            </label>
+            <input
+              type="text"
+              id="hanjaInput"
+              class="input-field"
+              placeholder="洪吉東"
+              maxlength="20"
+            />
+          </div>
+        </div>
+
+        <div class="form-grid">
+          <div class="input-group">
+            <label class="input-label">
+              성별 <span class="required">*</span>
+            </label>
+            <div class="gender-options">
+              <div class="radio-option">
+                <input type="radio" name="gender" value="male" id="male" class="radio-input">
+                <label for="male" class="radio-label">
+                  <span>👨</span> 남성
+                </label>
+              </div>
+              <div class="radio-option">
+                <input type="radio" name="gender" value="female" id="female" class="radio-input">
+                <label for="female" class="radio-label">
+                  <span>👩</span> 여성
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div class="input-group">
+            <label class="input-label" for="birthDate">
+              생년월일 <span class="required">*</span>
+            </label>
+            <input
+              type="date"
+              id="birthDate"
+              class="input-field"
+              required
+            />
+          </div>
+        </div>
+
+        <div class="form-grid">
+          <div class="input-group">
+            <label class="input-label" for="birthTime">
+              태어난 시간 <span class="optional">(선택사항)</span>
+            </label>
+            <select class="select-field" id="birthTime">
+              <option value="">시간을 선택하세요</option>
+              <option value="23-01">자시 (23:00-01:00)</option>
+              <option value="01-03">축시 (01:00-03:00)</option>
+              <option value="03-05">인시 (03:00-05:00)</option>
+              <option value="05-07">묘시 (05:00-07:00)</option>
+              <option value="07-09">진시 (07:00-09:00)</option>
+              <option value="09-11">사시 (09:00-11:00)</option>
+              <option value="11-13">오시 (11:00-13:00)</option>
+              <option value="13-15">미시 (13:00-15:00)</option>
+              <option value="15-17">신시 (15:00-17:00)</option>
+              <option value="17-19">유시 (17:00-19:00)</option>
+              <option value="19-21">술시 (19:00-21:00)</option>
+              <option value="21-23">해시 (21:00-23:00)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="info-card">
+          <div class="info-title">
+            <span>🔮</span>
+            사주팔자 기반 정밀 분석
+          </div>
+          <p class="info-desc">
+            생년월일과 성별 정보를 통해 사주팔자를 분석하여 이름과의 조화도를 더욱 정확하게 계산합니다. 
+            태어난 시간이 있으면 더욱 세밀한 분석이 가능합니다.
+          </p>
+        </div>
+
+        <div class="error-message" id="errorMessage"></div>
+
+        <div style="text-align: center;">
+          <button class="btn" onclick="analyzeName()" id="analyzeBtn">
+            🎯 정밀 분석 시작
+          </button>
+        </div>
+
+        <div class="loading" id="loadingDiv">
+          <div class="spinner"></div>
+          <p>사주팔자와 이름을 종합 분석하고 있습니다...</p>
+        </div>
+      </div>
+
+      <!-- 결과 화면 -->
+      <div class="card result-section" id="resultSection">
+        <div class="result-header">
+          <div class="result-name" id="resultName">홍길동</div>
+          <div class="result-hanja" id="resultHanja">洪吉東</div>
+          <div class="result-info" id="resultInfo">1990년 5월 15일 • 남성</div>
+        </div>
+
+        <div class="score-display">
+          <div class="score-circle">
+            <svg class="progress-ring" width="200" height="200">
+              <circle
+                class="progress-ring-circle progress-ring-bg"
+                cx="100"
+                cy="100"
+                r="90"
+              />
+              <circle
+                class="progress-ring-circle progress-ring-fill"
+                cx="100"
+                cy="100"
+                r="90"
+                id="progressCircle"
+              />
+            </svg>
+            <div class="score-number" id="scoreNumber">85</div>
+            <div class="score-text">점</div>
+          </div>
+          <span class="score-grade" id="scoreGrade">우수</span>
+          <button class="share-button" onclick="shareResult()">
+            <span>📋</span>
+            <span id="shareButtonText">결과 복사하기</span>
+          </button>
+        </div>
+
+        <div class="analysis-sections">
+          <!-- 사주팔자 정보 -->
+          <div class="fade-in-up">
+            <h2 class="section-title">
+              <span>🔮</span>
+              사주팔자 분석
+            </h2>
+            <div class="saju-info">
+              <div class="personality-title" id="sajuElement">갑목(甲木) - 큰 나무</div>
+              <p class="personality-desc" id="sajuDesc">
+                리더십이 강하고 추진력이 뛰어나며, 새로운 것을 추구하는 성향을 가지고 있습니다.
+              </p>
+              <div class="saju-grid">
+                <div class="pillar">
+                  <div class="pillar-title">년주</div>
+                  <div class="pillar-value" id="yearPillar">갑자</div>
+                </div>
+                <div class="pillar">
+                  <div class="pillar-title">월주</div>
+                  <div class="pillar-value" id="monthPillar">정사</div>
+                </div>
+                <div class="pillar">
+                  <div class="pillar-title">일주</div>
+                  <div class="pillar-value" id="dayPillar">무신</div>
+                </div>
+                <div class="pillar">
+                  <div class="pillar-title">시주</div>
+                  <div class="pillar-value" id="timePillar">계해</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 이름 성향 -->
+          <div class="fade-in-up stagger-1">
+            <h2 class="section-title">
+              <span>🎭</span>
+              이름 성향 분석
+            </h2>
+            <div class="personality-title" id="personalityTitle">
+              활동적이고 진취적인 성향
+            </div>
+            <p class="personality-desc" id="personalityDesc">
+              리더십이 강하고 도전 정신이 뛰어나며, 새로운 것을 추구하는 성향을 가지고 있습니다.
+            </p>
+          </div>
+
+          <!-- 추천하는 물건들 -->
+          <div class="fade-in-up stagger-2">
+            <h2 class="section-title">
+              <span>✨</span>
+              추천하는 물건들
+            </h2>
+            <div class="items-grid" id="recommendedItems">
+              <!-- 추천 아이템들이 여기에 동적으로 추가됩니다 -->
+            </div>
+          </div>
+
+          <!-- 피해야 할 물건들 -->
+          <div class="fade-in-up stagger-3">
+            <h2 class="section-title">
+              <span>⚠️</span>
+              피해야 할 물건들
+            </h2>
+            <div class="items-grid" id="avoidItems">
+              <!-- 피할 아이템들이 여기에 동적으로 추가됩니다 -->
+            </div>
+          </div>
+        </div>
+
+        <div style="text-align: center; margin-top: 40px" class="fade-in-up stagger-4">
+          <button class="btn btn-secondary" onclick="resetAnalysis()">
+            다시 분석하기
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // 사주팔자 분석 모듈
+      class SajuAnalysis {
+        constructor(birthYear, birthMonth, birthDay, birthHour, gender) {
+          this.birthYear = birthYear;
+          this.birthMonth = birthMonth;
+          this.birthDay = birthDay;
+          this.birthHour = birthHour || 12; // 기본값 정오
+          this.gender = gender;
+        }
+
+        // 천간지지 계산
+        calculateCheonganJiji() {
+          const cheongans = ['갑', '을', '병', '정', '무', '기', '경', '신', '임', '계'];
+          const jijis = ['자', '축', '인', '묘', '진', '사', '오', '미', '신', '유', '술', '해'];
+          
+          // 년주 계산 (1984년 = 갑자년 기준)
+          const yearIndex = (this.birthYear - 1984) % 10;
+          const yearJijiIndex = (this.birthYear - 1984) % 12;
+          
+          // 월주 계산 (간략화)
+          const monthIndex = (this.birthMonth + yearIndex) % 10;
+          const monthJijiIndex = (this.birthMonth - 1) % 12;
+          
+          // 일주 계산 (간략화)
+          const dayIndex = (this.birthDay + monthIndex) % 10;
+          const dayJijiIndex = (this.birthDay - 1) % 12;
+          
+          // 시주 계산 (간략화)
+          const timeIndex = (Math.floor(this.birthHour / 2) + dayIndex) % 10;
+          const timeJijiIndex = Math.floor(this.birthHour / 2) % 12;
+          
+          return {
+            yearPillar: cheongans[yearIndex] + jijis[yearJijiIndex],
+            monthPillar: cheongans[monthIndex] + jijis[monthJijiIndex],
+            dayPillar: cheongans[dayIndex] + jijis[dayJijiIndex],
+            timePillar: cheongans[timeIndex] + jijis[timeJijiIndex],
+            mainElement: cheongans[dayIndex]
+          };
+        }
+
+        // 사주 기반 성격 분석
+        analyzePersonality() {
+          const pillars = this.calculateCheonganJiji();
+          const personalities = {
+            '갑': {
+              element: '갑목(甲木) - 큰 나무',
+              traits: ['리더십', '추진력', '정직함', '개척정신'],
+              favorableElements: ['수', '목'],
+              unfavorableElements: ['금', '토'],
+              luckyColors: ['초록', '파랑', '청색'],
+              description: '큰 나무처럼 곧고 강직하며, 리더십이 뛰어나고 새로운 분야를 개척하는 능력이 탁월합니다.'
+            },
+            '을': {
+              element: '을목(乙木) - 작은 나무',
+              traits: ['섬세함', '예술성', '협조성', '융통성'],
+              favorableElements: ['수', '목'],
+              unfavorableElements: ['금'],
+              luckyColors: ['연두', '하늘색', '분홍'],
+              description: '부드럽고 유연한 성격으로 예술적 감각이 뛰어나며, 타인과의 조화를 중시합니다.'
+            },
+            '병': {
+              element: '병화(丙火) - 태양',
+              traits: ['열정', '밝음', '활동성', '사교성'],
+              favorableElements: ['목', '화'],
+              unfavorableElements: ['수'],
+              luckyColors: ['빨강', '주황', '노랑'],
+              description: '태양처럼 밝고 열정적이며, 주변을 환하게 만드는 긍정적인 에너지를 가졌습니다.'
+            },
+            '정': {
+              element: '정화(丁火) - 촛불',
+              traits: ['세심함', '창의성', '온화함', '지혜'],
+              favorableElements: ['목', '화'],
+              unfavorableElements: ['수'],
+              luckyColors: ['빨강', '보라', '분홍'],
+              description: '촛불처럼 따뜻하고 섬세하며, 창의적이고 지적인 면이 뛰어납니다.'
+            },
+            '무': {
+              element: '무토(戊土) - 산',
+              traits: ['안정성', '신뢰성', '포용력', '인내심'],
+              favorableElements: ['화', '토'],
+              unfavorableElements: ['목', '수'],
+              luckyColors: ['노랑', '갈색', '주황'],
+              description: '산처럼 든든하고 안정적이며, 강한 포용력과 인내심을 가지고 있습니다.'
+            },
+            '기': {
+              element: '기토(己土) - 밭',
+              traits: ['성실함', '근면함', '배려심', '실용성'],
+              favorableElements: ['화', '토'],
+              unfavorableElements: ['목'],
+              luckyColors: ['노랑', '베이지', '갈색'],
+              description: '밭처럼 비옥하고 실용적이며, 성실하고 근면한 성격으로 많은 것을 키워냅니다.'
+            },
+            '경': {
+              element: '경금(庚金) - 쇠',
+              traits: ['강인함', '결단력', '정의감', '직선적'],
+              favorableElements: ['토', '금'],
+              unfavorableElements: ['화'],
+              luckyColors: ['흰색', '금색', '은색'],
+              description: '쇠처럼 강하고 날카로우며, 정의감이 강하고 결단력이 뛰어납니다.'
+            },
+            '신': {
+              element: '신금(辛金) - 보석',
+              traits: ['세련됨', '품격', '예리함', '완벽주의'],
+              favorableElements: ['토', '금'],
+              unfavorableElements: ['화'],
+              luckyColors: ['흰색', '은색', '파스텔'],
+              description: '보석처럼 세련되고 품격이 있으며, 완벽을 추구하는 성향이 강합니다.'
+            },
+            '임': {
+              element: '임수(壬水) - 바다',
+              traits: ['포용력', '지혜', '유연성', '깊이'],
+              favorableElements: ['금', '수'],
+              unfavorableElements: ['토'],
+              luckyColors: ['검정', '진파랑', '회색'],
+              description: '바다처럼 깊고 넓은 마음을 가졌으며, 뛰어난 지혜와 포용력을 보입니다.'
+            },
+            '계': {
+              element: '계수(癸水) - 이슬',
+              traits: ['순수함', '직관력', '감수성', '신비로움'],
+              favorableElements: ['금', '수'],
+              unfavorableElements: ['토'],
+              luckyColors: ['검정', '파랑', '보라'],
+              description: '이슬처럼 순수하고 맑으며, 뛰어난 직감력과 감수성을 가지고 있습니다.'
+            }
+          };
+          
+          return personalities[pillars.mainElement] || personalities['갑'];
+        }
+
+        // 작명 추천사항
+        getNameRecommendations() {
+          const analysis = this.analyzePersonality();
+          const pillars = this.calculateCheonganJiji();
+          
+          return {
+            pillars: pillars,
+            personality: analysis,
+            favorableHanja: this.getFavorableHanja(analysis.favorableElements),
+            unfavorableHanja: this.getUnfavorableHanja(analysis.unfavorableElements),
+            luckyItems: this.getLuckyItems(analysis.favorableElements),
+            unluckyItems: this.getUnluckyItems(analysis.unfavorableElements),
+            personalityScore: this.calculatePersonalityMatch()
+          };
+        }
+
+        // 유리한 한자 추천
+        getFavorableHanja(favorableElements) {
+          const elementHanja = {
+            '목': ['木', '林', '森', '柳', '松', '竹', '梅', '蘭', '花', '草'],
+            '화': ['火', '炎', '煌', '焰', '燦', '輝', '明', '亮', '日', '光'],
+            '토': ['土', '地', '山', '岩', '石', '基', '堅', '穩', '城', '墻'],
+            '금': ['金', '銀', '鐵', '鋼', '銳', '利', '刃', '劍', '鏡', '鈴'],
+            '수': ['水', '海', '江', '河', '湖', '流', '泉', '淵', '雨', '雲']
+          };
+          return favorableElements.flatMap(element => elementHanja[element] || []);
+        }
+
+        // 불리한 한자
+        getUnfavorableHanja(unfavorableElements) {
+          return this.getFavorableHanja(unfavorableElements);
+        }
+
+        // 행운의 아이템
+        getLuckyItems(favorableElements) {
+          const elementItems = {
+            '목': ['나무 액세서리', '초록색 옷', '화분', '목재 가구', '대나무 제품'],
+            '화': ['빨간색 아이템', '캔들', '따뜻한 조명', '태양석', '루비'],
+            '토': ['황색 액세서리', '도자기', '자연석', '황옥', '토파즈'],
+            '금': ['금속 액세서리', '흰색 아이템', '크리스털', '은제품', '다이아몬드'],
+            '수': ['파란색 아이템', '수정', '진주', '물고기 그림', '분수']
+          };
+          return favorableElements.flatMap(element => elementItems[element] || []).slice(0, 3);
+        }
+
+        // 피해야 할 아이템
+        getUnluckyItems(unfavorableElements) {
+          const elementItems = {
+            '목': ['금속성 장신구', '마른 나무', '시든 화분'],
+            '화': ['차가운 색상', '얼음', '진파랑 아이템'],
+            '토': ['뾰족한 물건', '과도한 목재', '녹색 식물'],
+            '금': ['빨간색 물건', '화려한 장식', '뜨거운 것'],
+            '수': ['흙색 아이템', '건조한 것', '모래시계']
+          };
+          return unfavorableElements.flatMap(element => elementItems[element] || []).slice(0, 3);
+        }
+
+        // 성격 매치 점수 계산
+        calculatePersonalityMatch() {
+          // 사주와 이름의 조화도 계산 (간략화)
+          return Math.floor(Math.random() * 30) + 70; // 70-100점
+        }
+      }
+
+      // 이름 분석 함수
+      function calculateNameScore(name, hanja, sajuData) {
+        // 기존 점수 계산 로직
+        let score = 0;
+        
+        // 1. 기본 획수 점수 (30점)
+        const strokeScore = calculateStrokeScore(name, hanja);
+        score += strokeScore;
+        
+        // 2. 음성학 점수 (25점)
+        const phoneticScore = calculatePhoneticScore(name);
+        score += phoneticScore;
+        
+        // 3. 의미 점수 (20점)
+        const meaningScore = calculateMeaningScore(name, hanja);
+        score += meaningScore;
+        
+        // 4. 사주 조화 점수 (25점) - 새로 추가
+        const sajuScore = sajuData ? sajuData.personalityScore * 0.25 : 20;
+        score += sajuScore;
+        
+        return Math.min(100, Math.max(0, score));
+      }
+
+      // 획수 점수 계산
+      function calculateStrokeScore(name, hanja) {
+        const goodStrokes = [1, 3, 5, 6, 7, 8, 11, 13, 15, 16, 17, 18, 21, 23, 24, 25, 29, 31, 32, 33, 35, 37, 39, 41, 45, 47, 48];
+        let totalStrokes = 0;
+        
+        if (hanja) {
+          // 한자가 있으면 한자 획수로 계산
+          for (let char of hanja) {
+            totalStrokes += getHanjaStroke(char);
+          }
+        } else {
+          // 한글 획수로 계산
+          for (let char of name) {
+            totalStrokes += getHangulStroke(char);
+          }
+        }
+        
+        return goodStrokes.includes(totalStrokes) ? 30 : Math.max(0, 30 - Math.abs(totalStrokes - 20));
+      }
+
+      // 음성학 점수 계산
+      function calculatePhoneticScore(name) {
+        const vowels = ['ㅏ', 'ㅓ', 'ㅗ', 'ㅜ', 'ㅡ', 'ㅣ', 'ㅑ', 'ㅕ', 'ㅛ', 'ㅠ'];
+        let score = 25;
+        
+        // 발음의 조화도 검사
+        if (name.length >= 2) {
+          for (let i = 0; i < name.length - 1; i++) {
+            const current = name[i];
+            const next = name[i + 1];
+            
+            // 같은 자음 연속 피하기
+            if (getConsonant(current) === getConsonant(next)) {
+              score -= 5;
+            }
+          }
+        }
+        
+        return Math.max(0, score);
+      }
+
+      // 의미 점수 계산
+      function calculateMeaningScore(name, hanja) {
+        const positiveHanja = ['福', '壽', '康', '寧', '吉', '祥', '德', '仁', '智', '勇', '美', '善', '光', '明', '輝', '燦'];
+        const negativeHanja = ['病', '死', '凶', '災', '禍', '惡', '暗', '黑'];
+        
+        let score = 20;
+        
+        if (hanja) {
+          for (let char of hanja) {
+            if (positiveHanja.includes(char)) score += 3;
+            if (negativeHanja.includes(char)) score -= 10;
+          }
+        }
+        
+        return Math.max(0, Math.min(20, score));
+      }
+
+      // 보조 함수들
+      function getHanjaStroke(char) {
+        // 한자 획수 데이터 (간략화)
+        const strokes = {
+          '金': 8, '木': 4, '水': 4, '火': 4, '土': 3,
+          '洪': 10, '吉': 6, '東': 8, '김': 8, '이': 7, '박': 10,
+          '일': 1, '二': 2, '三': 3, '四': 4, '五': 5,
+          '六': 4, '七': 2, '八': 2, '九': 2, '十': 2
+        };
+        return strokes[char] || 8; // 기본값
+      }
+
+      function getHangulStroke(char) {
+        // 한글 획수 계산 (간략화)
+        const baseStrokes = {
+          'ㄱ': 2, 'ㄴ': 2, 'ㄷ': 3, 'ㄹ': 5, 'ㅁ': 4, 'ㅂ': 4, 'ㅅ': 2, 'ㅇ': 1, 'ㅈ': 3, 'ㅊ': 4, 'ㅋ': 3, 'ㅌ': 4, 'ㅍ': 4, 'ㅎ': 3,
+          'ㅏ': 2, 'ㅑ': 3, 'ㅓ': 2, 'ㅕ': 3, 'ㅗ': 2, 'ㅛ': 3, 'ㅜ': 2, 'ㅠ': 3, 'ㅡ': 1, 'ㅣ': 1
+        };
+        
+        const code = char.charCodeAt(0) - 0xAC00;
+        const initial = Math.floor(code / 588);
+        const medial = Math.floor((code % 588) / 28);
+        const final = code % 28;
+        
+        const initials = ['ㄱ', 'ㄲ', 'ㄴ', 'ㄷ', 'ㄸ', 'ㄹ', 'ㅁ', 'ㅂ', 'ㅃ', 'ㅅ', 'ㅆ', 'ㅇ', 'ㅈ', 'ㅉ', 'ㅊ', 'ㅋ', 'ㅌ', 'ㅍ', 'ㅎ'];
+        const medials = ['ㅏ', 'ㅐ', 'ㅑ', 'ㅒ', 'ㅓ', 'ㅔ', 'ㅕ', 'ㅖ', 'ㅗ', 'ㅘ', 'ㅙ', 'ㅚ', 'ㅛ', 'ㅜ', 'ㅝ', 'ㅞ', 'ㅟ', 'ㅠ', 'ㅡ', 'ㅢ', 'ㅣ'];
+        const finals = ['', 'ㄱ', 'ㄲ', 'ㄳ', 'ㄴ', 'ㄵ', 'ㄶ', 'ㄷ', 'ㄹ', 'ㄺ', 'ㄻ', 'ㄼ', 'ㄽ', 'ㄾ', 'ㄿ', 'ㅀ', 'ㅁ', 'ㅂ', 'ㅄ', 'ㅅ', 'ㅆ', 'ㅇ', 'ㅈ', 'ㅊ', 'ㅋ', 'ㅌ', 'ㅍ', 'ㅎ'];
+        
+        let strokes = 0;
+        strokes += baseStrokes[initials[initial]] || 2;
+        strokes += baseStrokes[medials[medial]] || 2;
+        if (final > 0) strokes += baseStrokes[finals[final]] || 2;
+        
+        return strokes;
+      }
+
+      function getConsonant(char) {
+        const code = char.charCodeAt(0) - 0xAC00;
+        return Math.floor(code / 588);
+      }
+
+      // 테마 토글
+      function toggleTheme() {
+        const body = document.body;
+        const themeIcon = document.getElementById('themeIcon');
+
+        if (body.getAttribute('data-theme') === 'light') {
+          body.setAttribute('data-theme', 'dark');
+          themeIcon.textContent = '☀️';
+        } else {
+          body.setAttribute('data-theme', 'light');
+          themeIcon.textContent = '🌙';
+        }
+      }
+
+      // 현재 시간 업데이트
+      function updateCurrentTime() {
+        const now = new Date();
+        document.getElementById('currentDate').textContent =
+          now.toLocaleDateString('ko-KR');
+        document.getElementById('currentTime').textContent =
+          now.toLocaleTimeString('ko-KR', {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false,
+          });
+      }
+
+      // 이름 분석 함수
+      async function analyzeName() {
+        const nameInput = document.getElementById('nameInput');
+        const hanjaInput = document.getElementById('hanjaInput');
+        const genderInputs = document.querySelectorAll('input[name="gender"]');
+        const birthDateInput = document.getElementById('birthDate');
+        const birthTimeInput = document.getElementById('birthTime');
+
+        const name = nameInput.value.trim();
+        const hanja = hanjaInput.value.trim();
+        const birthDate = birthDateInput.value;
+        
+        let gender = null;
+        for (let input of genderInputs) {
+          if (input.checked) {
+            gender = input.value;
+            break;
+          }
+        }
+
+        // 필수 입력 검증
+        if (!name) {
+          showError('이름을 입력해주세요.');
+          nameInput.focus();
+          return;
+        }
+
+        if (!gender) {
+          showError('성별을 선택해주세요.');
+          return;
+        }
+
+        if (!birthDate) {
+          showError('생년월일을 입력해주세요.');
+          birthDateInput.focus();
+          return;
+        }
+
+        // UI 상태 변경
+        showLoading();
+        hideError();
+
+        try {
+          // 생년월일 파싱
+          const date = new Date(birthDate);
+          const birthYear = date.getFullYear();
+          const birthMonth = date.getMonth() + 1;
+          const birthDay = date.getDate();
+          
+          // 시간 파싱 (선택사항)
+          let birthHour = 12; // 기본값 정오
+          if (birthTimeInput.value) {
+            const timeRange = birthTimeInput.value.split('-');
+            birthHour = parseInt(timeRange[0]);
+          }
+
+          // 사주 분석
+          const saju = new SajuAnalysis(birthYear, birthMonth, birthDay, birthHour, gender);
+          const sajuData = saju.getNameRecommendations();
+
+          // 이름 점수 계산
+          const score = calculateNameScore(name, hanja, sajuData);
+          
+          // 결과 생성
+          const result = {
+            score: Math.round(score),
+            grade: getGrade(score),
+            name: name,
+            hanja: hanja,
+            birthInfo: {
+              year: birthYear,
+              month: birthMonth,
+              day: birthDay,
+              hour: birthHour,
+              gender: gender
+            },
+            sajuData: sajuData,
+            personalityTitle: sajuData.personality.traits.join(', ') + ' 성향',
+            personalityDesc: sajuData.personality.description,
+            recommended: sajuData.luckyItems,
+            avoid: sajuData.unluckyItems
+          };
+
+          displayResult(result);
+          showResultSection();
+
+        } catch (error) {
+          console.error('분석 오류:', error);
+          showError('분석 중 오류가 발생했습니다. 입력 정보를 확인해주세요.');
+        } finally {
+          hideLoading();
+        }
+      }
+
+      function getGrade(score) {
+        if (score >= 85) return '우수';
+        if (score >= 70) return '보통';
+        return '개선필요';
+      }
+
+      function showLoading() {
+        document.getElementById('analyzeBtn').disabled = true;
+        document.getElementById('loadingDiv').style.display = 'block';
+      }
+
+      function hideLoading() {
+        document.getElementById('analyzeBtn').disabled = false;
+        document.getElementById('loadingDiv').style.display = 'none';
+      }
+
+      function showError(message) {
+        const errorDiv = document.getElementById('errorMessage');
+        errorDiv.textContent = message;
+        errorDiv.style.display = 'block';
+      }
+
+      function hideError() {
+        document.getElementById('errorMessage').style.display = 'none';
+      }
+
+      function displayResult(data) {
+        // 결과 헤더 업데이트
+        document.getElementById('resultName').textContent = data.name;
+        document.getElementById('resultHanja').textContent = data.hanja || '';
+        document.getElementById('resultHanja').style.display = data.hanja ? 'block' : 'none';
+        
+        const birthInfo = data.birthInfo;
+        const genderText = birthInfo.gender === 'male' ? '남성' : '여성';
+        document.getElementById('resultInfo').textContent = 
+          `${birthInfo.year}년 ${birthInfo.month}월 ${birthInfo.day}일 • ${genderText}`;
+
+        // 점수 색상 결정
+        const score = data.score;
+        let color, bgColor;
+
+        if (score >= 85) {
+          color = '#fbbf24'; // 황금색
+          bgColor = 'rgba(251, 191, 36, 0.1)';
+        } else if (score >= 70) {
+          color = '#10b981'; // 초록색
+          bgColor = 'rgba(16, 185, 129, 0.1)';
+        } else {
+          color = '#ef4444'; // 빨간색
+          bgColor = 'rgba(239, 68, 68, 0.1)';
+        }
+
+        // 원형 프로그레스 바 설정
+        const circle = document.getElementById('progressCircle');
+        const radius = 90;
+        const circumference = 2 * Math.PI * radius;
+        const offset = circumference - (score / 100) * circumference;
+
+        circle.style.strokeDasharray = circumference;
+        circle.style.strokeDashoffset = circumference;
+        circle.style.stroke = color;
+
+        // 점수 및 등급 표시
+        const scoreNumber = document.getElementById('scoreNumber');
+        scoreNumber.textContent = score;
+        scoreNumber.style.background = `linear-gradient(135deg, ${color} 0%, ${color}AA 100%)`;
+        scoreNumber.style.webkitBackgroundClip = 'text';
+        scoreNumber.style.webkitTextFillColor = 'transparent';
+        scoreNumber.style.backgroundClip = 'text';
+
+        const gradeElement = document.getElementById('scoreGrade');
+        gradeElement.textContent = data.grade;
+        gradeElement.className = 'score-grade ' + getGradeClass(data.grade);
+        gradeElement.style.backgroundColor = bgColor;
+        gradeElement.style.color = color;
+
+        // 애니메이션으로 프로그레스 바 채우기
+        setTimeout(() => {
+          circle.style.strokeDashoffset = offset;
+        }, 500);
+
+        // 사주팔자 정보 표시
+        const sajuData = data.sajuData;
+        document.getElementById('sajuElement').textContent = sajuData.personality.element;
+        document.getElementById('sajuDesc').textContent = sajuData.personality.description;
+        
+        document.getElementById('yearPillar').textContent = sajuData.pillars.yearPillar;
+        document.getElementById('monthPillar').textContent = sajuData.pillars.monthPillar;
+        document.getElementById('dayPillar').textContent = sajuData.pillars.dayPillar;
+        document.getElementById('timePillar').textContent = sajuData.pillars.timePillar;
+
+        // 성향 표시
+        document.getElementById('personalityTitle').textContent = data.personalityTitle;
+        document.getElementById('personalityDesc').textContent = data.personalityDesc;
+
+        // 추천 물건들 표시
+        const recommendedContainer = document.getElementById('recommendedItems');
+        recommendedContainer.innerHTML = '';
+
+        data.recommended.forEach((item, index) => {
+          const itemCard = createItemCard(item, 'recommended', getRecommendedIcon(index));
+          itemCard.classList.add('fade-in-up', `stagger-${index + 1}`);
+          recommendedContainer.appendChild(itemCard);
+        });
+
+        // 피할 물건들 표시
+        const avoidContainer = document.getElementById('avoidItems');
+        avoidContainer.innerHTML = '';
+
+        data.avoid.forEach((item, index) => {
+          const itemCard = createItemCard(item, 'avoid', getAvoidIcon(index));
+          itemCard.classList.add('fade-in-up', `stagger-${index + 4}`);
+          avoidContainer.appendChild(itemCard);
+        });
+      }
+
+      // 결과 공유 기능
+      function shareResult() {
+        const name = document.getElementById('resultName').textContent;
+        const hanja = document.getElementById('resultHanja').textContent;
+        const score = document.getElementById('scoreNumber').textContent;
+        const grade = document.getElementById('scoreGrade').textContent;
+        const birthInfo = document.getElementById('resultInfo').textContent;
+        const sajuElement = document.getElementById('sajuElement').textContent;
+        const personality = document.getElementById('personalityTitle').textContent;
+
+        const recommended = [];
+        document.querySelectorAll('#recommendedItems .item-name').forEach((el) => {
+          recommended.push(el.textContent);
+        });
+
+        const avoid = [];
+        document.querySelectorAll('#avoidItems .item-name').forEach((el) => {
+          avoid.push(el.textContent);
+        });
+
+        const shareText = `🎯 작명 점수 종합 분석 결과
+            
+📋 이름: ${name}${hanja ? ` (${hanja})` : ''}
+👤 정보: ${birthInfo}
+⭐ 점수: ${score}점 (${grade})
+
+🔮 사주팔자: ${sajuElement}
+🎭 성향: ${personality}
+
+✨ 추천 아이템: ${recommended.join(', ')}
+⚠️ 피할 아이템: ${avoid.join(', ')}
+
+---
+사주팔자 기반 정밀 작명 분석 결과입니다.`;
+
+        // 클립보드에 복사
+        if (navigator.clipboard && window.isSecureContext) {
+          navigator.clipboard
+            .writeText(shareText)
+            .then(() => {
+              showCopySuccess();
+            })
+            .catch(() => {
+              fallbackCopyToClipboard(shareText);
+            });
+        } else {
+          fallbackCopyToClipboard(shareText);
+        }
+      }
+
+      function fallbackCopyToClipboard(text) {
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-999999px';
+        textArea.style.top = '-999999px';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+
+        try {
+          document.execCommand('copy');
+          showCopySuccess();
+        } catch (err) {
+          alert('복사에 실패했습니다. 수동으로 복사해주세요.');
+        }
+
+        document.body.removeChild(textArea);
+      }
+
+      function showCopySuccess() {
+        const button = document.querySelector('.share-button');
+        const buttonText = document.getElementById('shareButtonText');
+
+        button.classList.add('copied');
+        buttonText.textContent = '복사 완료!';
+
+        setTimeout(() => {
+          button.classList.remove('copied');
+          buttonText.textContent = '결과 복사하기';
+        }, 2000);
+      }
+
+      function getGradeClass(grade) {
+        switch (grade) {
+          case '우수':
+            return 'grade-excellent';
+          case '보통':
+            return 'grade-good';
+          case '개선필요':
+            return 'grade-poor';
+          default:
+            return 'grade-good';
+        }
+      }
+
+      function createItemCard(itemName, type, icon) {
+        const card = document.createElement('div');
+        card.className = `item-card ${type}`;
+        card.innerHTML = `
+          <div class="item-icon">${icon}</div>
+          <div class="item-name">${itemName}</div>
+        `;
+        return card;
+      }
+
+      function getRecommendedIcon(index) {
+        const icons = ['💎', '🍀', '🌟', '🔮', '🎋', '🌸'];
+        return icons[index] || '✨';
+      }
+
+      function getAvoidIcon(index) {
+        const icons = ['🚫', '⚠️', '💥', '🌪️', '⚡', '🔥'];
+        return icons[index] || '⌘';
+      }
+
+      function showResultSection() {
+        document.getElementById('inputSection').style.display = 'none';
+        document.getElementById('resultSection').style.display = 'block';
+
+        // 점수 애니메이션
+        setTimeout(() => {
+          document.querySelector('.score-circle').classList.add('bounce-in');
+        }, 200);
+
+        // 각 섹션들을 순차적으로 애니메이션
+        setTimeout(() => {
+          document.querySelectorAll('.fade-in-up').forEach((el, index) => {
+            setTimeout(() => {
+              el.style.opacity = '1';
+              el.style.transform = 'translateY(0)';
+            }, index * 150);
+          });
+        }, 600);
+      }
+
+      function resetAnalysis() {
+        document.getElementById('inputSection').style.display = 'block';
+        document.getElementById('resultSection').style.display = 'none';
+        document.getElementById('nameInput').value = '';
+        document.getElementById('hanjaInput').value = '';
+        document.getElementById('birthDate').value = '';
+        document.getElementById('birthTime').value = '';
+        
+        // 성별 선택 초기화
+        document.querySelectorAll('input[name="gender"]').forEach(input => {
+          input.checked = false;
+        });
+        
+        document.getElementById('nameInput').focus();
+        hideError();
+      }
+
+      // 초기 설정
+      document.addEventListener('DOMContentLoaded', function () {
+        updateCurrentTime();
+
+        // 1분마다 시간 업데이트
+        setInterval(updateCurrentTime, 60000);
+
+        // fade-in-up 요소들 초기 상태 설정
+        document.querySelectorAll('.fade-in-up').forEach((el) => {
+          el.style.opacity = '0';
+          el.style.transform = 'translateY(30px)';
+        });
+
+        // Enter 키 이벤트
+        document.getElementById('nameInput').addEventListener('keypress', function (e) {
+          if (e.key === 'Enter') {
+            analyzeName();
+          }
+        });
+
+        document.getElementById('hanjaInput').addEventListener('keypress', function (e) {
+          if (e.key === 'Enter') {
+            analyzeName();
+          }
+        });
+
+        document.getElementById('birthDate').addEventListener('keypress', function (e) {
+          if (e.key === 'Enter') {
+            analyzeName();
+          }
+        });
+
+        // 생년월일 최대값 설정 (오늘 날짜)
+        const today = new Date().toISOString().split('T')[0];
+        document.getElementById('birthDate').setAttribute('max', today);
+        
+        // 생년월일 최소값 설정 (1900년)
+        document.getElementById('birthDate').setAttribute('min', '1900-01-01');
+      });
+    </script>
+  </body>
+</html>
